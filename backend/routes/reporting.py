@@ -12,7 +12,7 @@ import io
 from backend import main_state
 from backend.auth import User, get_current_user, get_optional_user, verify_analysis_access, require_role, verify_csrf
 from backend.database import get_connection
-from backend.utils.report_pdf import build_pdf, build_summary_pdf
+from backend.utils.report_pdf import build_pdf, build_summary_pdf, format_pht_timestamp
 
 router = APIRouter(prefix="/api", tags=["reporting"])
 
@@ -220,7 +220,7 @@ def generate_summary(payload: SummaryRequest, user: User = Depends(get_current_u
                 "company": data.get("company", ""),
                 "barangay": data.get("barangay", ""),
                 "street": data.get("street", ""),
-                "date": data.get("created_at", "").split(" ")[0],
+                "date": format_pht_timestamp(data.get("created_at"), include_time=False),
                 "vni": data.get("vni", "--"),
                 "max_crs": data.get("max_crs", "--"),
                 "safety_level": data["safety_level"],
@@ -297,7 +297,7 @@ def export_geojson(payload: SummaryRequest, user: User = Depends(get_current_use
                 "crs": data.get("max_crs"),
                 "ground_clearance_m": ground_clearance_m,
                 "vni": data.get("vni"),
-                "created_at": data.get("created_at")
+                "created_at": format_pht_timestamp(data.get("created_at"), include_time=True)
             }
             
             feature = {
@@ -357,7 +357,7 @@ def export_csv(payload: SummaryRequest, user: User = Depends(get_current_user)):
                 "crs": data.get("max_crs"),
                 "ground_clearance_m": ground_clearance_m,
                 "vni": data.get("vni"),
-                "created_at": data.get("created_at"),
+                "created_at": format_pht_timestamp(data.get("created_at"), include_time=True),
                 "gps_lat": data.get("gps_lat"),
                 "gps_lng": data.get("gps_lng")
             })

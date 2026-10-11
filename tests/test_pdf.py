@@ -84,3 +84,36 @@ def test_pdf_cache_invalidation_on_template_version_change(client_admin, monkeyp
     conn.close()
     
     assert meta1["source_version"] != meta3["source_version"]
+
+def test_format_pht_timestamp():
+    from backend.utils.report_pdf import format_pht_timestamp
+    res = format_pht_timestamp("2026-10-11 06:49:00")
+    assert res == "2026-10-11 14:49:00 PHT"
+    res_date = format_pht_timestamp("2026-10-11 06:49:00", include_time=False)
+    assert res_date == "2026-10-11"
+    assert format_pht_timestamp(None) == "--"
+
+def test_build_pdf_and_summary_titles(tmp_path, monkeypatch):
+    import os
+    from backend.utils.report_pdf import build_pdf, build_summary_pdf
+    from reportlab.platypus import SimpleDocTemplate
+
+    captured_stories = []
+    orig_build = SimpleDocTemplate.build
+
+    def mock_build(self, flowables, *args, **kwargs):
+        captured_stories.append(list(flowables))
+        return orig_build(self, flowables, *args, **kwargs)
+
+    monkeypatch.setattr(SimpleDocTemplate, "build", mock_build)
+
+    pdf_path = str(tmp_path / "single.pdf")
+    build_pdf({"id": "TEST-123"}, pdf_path)
+    assert os.path.exists(pdf_path)
+    assert any("WIREFRAME Report: TEST-123" in getattr(f, "text", "") for f in captured_stories[0])
+
+    summary_path = str(tmp_path / "summary.pdf")
+    build_summary_pdf({"items": []}, summary_path)
+    assert os.path.exists(summary_path)
+    assert any("WIREFRAME Summary Report" in getattr(f, "text", "") for f in captured_stories[1])
+

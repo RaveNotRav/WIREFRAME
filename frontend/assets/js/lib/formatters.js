@@ -28,3 +28,34 @@ export function getSafetyPill(level) {
     const l = level.toLowerCase();
     return `<span class="neu-pill neu-pill-safety-${l}">${escapeHtml(level)}</span>`;
 }
+
+export function parseDbTimestamp(str) {
+    if (!str) return null;
+    const iso = str.includes('T') ? str : str.replace(' ', 'T');
+    const utcIso = (iso.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(iso)) ? iso : iso + 'Z';
+    const d = new Date(utcIso);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+const phtDateTimeFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+});
+
+const phtDateFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric'
+});
+
+export function formatDbTimestamp(str, { includeTime = true } = {}) {
+    const d = parseDbTimestamp(str);
+    if (!d) return '--';
+    return includeTime ? phtDateTimeFormatter.format(d) : phtDateFormatter.format(d);
+}

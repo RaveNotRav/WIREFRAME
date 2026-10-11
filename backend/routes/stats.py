@@ -30,7 +30,7 @@ async def get_dashboard_stats(
                     AND w.safety_level IN ('Unsafe', 'Critical')
                 ) THEN 1 ELSE 0 END) as high_critical_count,
                 AVG(risk_score) as average_risk_score,
-                SUM(CASE WHEN date(created_at) = date('now') THEN 1 ELSE 0 END) as processed_today
+                SUM(CASE WHEN date(created_at, '+8 hours') = date('now', '+8 hours') THEN 1 ELSE 0 END) as processed_today
             FROM analyses
             WHERE status = 'complete' {mock_clause}
         """
@@ -109,7 +109,7 @@ async def get_dashboard_stats(
         cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
         trend_query = f"""
             SELECT 
-                date(created_at) as trend_date,
+                date(created_at, '+8 hours') as trend_date,
                 COUNT(id) as count,
                 AVG(risk_score) as avg_risk
             FROM analyses

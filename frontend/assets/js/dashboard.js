@@ -1,5 +1,5 @@
 import { initTheme, toggleTheme } from './lib/theme.js';
-import { getSafetyPill } from './lib/formatters.js';
+import { getSafetyPill, formatDbTimestamp, parseDbTimestamp } from './lib/formatters.js';
 
 function getRiskScorePill(score) {
     if (score === null || score === undefined) return '-';
@@ -293,12 +293,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const maxRisk = 100; // max risk is 100
         const minDateStr = trendData[0].date;
         const maxDateStr = trendData[trendData.length - 1].date;
-        const minDate = new Date(minDateStr).getTime();
-        const maxDate = new Date(maxDateStr).getTime();
+        const minDate = parseDbTimestamp(minDateStr + ' 00:00:00').getTime();
+        const maxDate = parseDbTimestamp(maxDateStr + ' 00:00:00').getTime();
         
         const getX = (dateStr) => {
             if (minDate === maxDate) return padding.left + innerWidth / 2;
-            const time = new Date(dateStr).getTime();
+            const time = parseDbTimestamp(dateStr + ' 00:00:00').getTime();
             return padding.left + ((time - minDate) / (maxDate - minDate)) * innerWidth;
         };
         
@@ -326,7 +326,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         for (let i=0; i<xTicksCount; i++) {
             const fraction = i / (xTicksCount - 1);
             const time = minDate + fraction * (maxDate - minDate);
-            const dateStr = new Date(time).toISOString().split('T')[0];
+            const dateStr = new Date(time + 8 * 3600 * 1000).toISOString().slice(0, 10);
             const x = padding.left + fraction * innerWidth;
             xAxisHtml += `<text class="svg-axis-text" x="${x}" y="${height - 10}" text-anchor="middle">${dateStr.substring(5)}</text>`;
             xAxisHtml += `<line x1="${x}" y1="${padding.top + innerHeight}" x2="${x}" y2="${padding.top + innerHeight + 5}" stroke="var(--text-secondary)" />`;
@@ -397,7 +397,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${item.id}</td>
-                    <td>${new Date(item.created_at).toLocaleDateString()}</td>
+                    <td>${formatDbTimestamp(item.created_at, { includeTime: false })}</td>
                     <td>${item.company || '-'}</td>
                     <td>${item.site_name || item.street || '-'}</td>
                     <td>${item.barangay || '-'}</td>

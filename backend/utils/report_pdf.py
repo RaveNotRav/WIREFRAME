@@ -1,6 +1,6 @@
 import os
 import xml.sax.saxutils
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from PIL import Image, ImageOps
 from reportlab.lib import colors
@@ -18,6 +18,26 @@ from reportlab.platypus import (
 
 # Set decompression bomb limit
 Image.MAX_IMAGE_PIXELS = 100000000
+
+PHT = timezone(timedelta(hours=8))
+
+def format_pht_timestamp(utc_val=None, include_time: bool = True) -> str:
+    if utc_val is None:
+        return "--"
+    try:
+        if isinstance(utc_val, datetime):
+            dt = utc_val if utc_val.tzinfo else utc_val.replace(tzinfo=timezone.utc)
+        else:
+            s = str(utc_val).strip()
+            if not s:
+                return "--"
+            dt = datetime.fromisoformat(s.replace(" ", "T")).replace(tzinfo=timezone.utc)
+        pht_dt = dt.astimezone(PHT)
+        if include_time:
+            return pht_dt.strftime("%Y-%m-%d %H:%M:%S PHT")
+        return pht_dt.strftime("%Y-%m-%d")
+    except Exception:
+        return str(utc_val)
 
 def safe_str(s):
     if s is None:
@@ -143,7 +163,7 @@ def build_pdf(data: dict, output_path: str):
     if is_mock:
         title_text += " <font color='red'>(MOCK DATA)</font>"
     elements.append(Paragraph(title_text, title_style))
-    elements.append(Paragraph(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
+    elements.append(Paragraph(f"Generated at: {format_pht_timestamp(datetime.now(timezone.utc))}", normal_style))
     elements.append(Spacer(1, 12))
     
     # Metadata
@@ -322,7 +342,7 @@ def build_summary_pdf(data: dict, output_path: str):
     if is_mock:
         title_text += " <font color='red'>(CONTAINS MOCK DATA)</font>"
     elements.append(Paragraph(title_text, title_style))
-    elements.append(Paragraph(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
+    elements.append(Paragraph(f"Generated at: {format_pht_timestamp(datetime.now(timezone.utc))}", normal_style))
     elements.append(Spacer(1, 12))
     
     # Summary Table

@@ -128,6 +128,7 @@
         import { fetchApi, showToast } from '/assets/js/main.js';
         import { initTheme, toggleTheme } from '/assets/js/lib/theme.js';
         import { loadHistoryData } from '/assets/js/loaders.js';
+        import { formatDbTimestamp } from '/assets/js/lib/formatters.js';
 
         let currentPage = 1;
         let totalPages = 1;
@@ -381,13 +382,15 @@
                 const el = document.createElement('div');
                 el.className = 'gallery-item';
                 
-                const d = new Date(item.created_at);
-                const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                const dateStr = formatDbTimestamp(item.created_at);
                 
                 let thumbSrc = item.filename ? `/api/analysis/${item.id}/original` : ''; // Fallback
                 
                 let mockBadge = item.is_mock ? `<div class="mock-watermark">MOCK DATA</div>` : '';
-if (item.is_public) mockBadge += `<div class="mock-watermark" style="background: var(--color-warning); top: 50%; opacity: 1;">UNVERIFIED PUBLIC TIP</div>`;
+                if (item.is_public) {
+                    const tipTop = item.is_mock ? '50px' : '20px';
+                    mockBadge += `<div class="mock-watermark" style="background: var(--color-warning); top: ${tipTop}; opacity: 1;">UNVERIFIED PUBLIC TIP</div>`;
+                }
                 
                 const isComplete = item.status === 'complete' || item.status === 'no_wires';
                 const pdfButton = isComplete 

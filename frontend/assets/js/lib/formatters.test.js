@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { getNaturalCoordinates } from './coordinates.js';
-import { escapeHtml, formatConfidence, getWireClassColor } from './formatters.js';
+import { escapeHtml, formatConfidence, getWireClassColor, parseDbTimestamp, formatDbTimestamp } from './formatters.js';
 
 test('escapeHtml handles strings correctly', () => {
     // Mock document
@@ -41,4 +41,23 @@ test('getNaturalCoordinates computes properly (contain)', () => {
     const coords = getNaturalCoordinates(mockEvent, mockElement, 1000, 500, 'contain');
     assert.strictEqual(coords.x, 500);
     assert.strictEqual(coords.y, 250);
+});
+
+test('parseDbTimestamp parses UTC SQLite strings', () => {
+    const d = parseDbTimestamp('2026-10-11 06:49:00');
+    assert.ok(d instanceof Date);
+    assert.strictEqual(d.toISOString(), '2026-10-11T06:49:00.000Z');
+    assert.strictEqual(parseDbTimestamp(null), null);
+    assert.strictEqual(parseDbTimestamp(''), null);
+});
+
+test('formatDbTimestamp formats in Asia/Manila (UTC+8)', () => {
+    // 06:49 UTC is 14:49 (02:49 PM) in Asia/Manila
+    const formatted = formatDbTimestamp('2026-10-11 06:49:00');
+    assert.strictEqual(formatted, '10/11/2026, 02:49 PM');
+    
+    const dateOnly = formatDbTimestamp('2026-10-11 06:49:00', { includeTime: false });
+    assert.strictEqual(dateOnly, '10/11/2026');
+    
+    assert.strictEqual(formatDbTimestamp(null), '--');
 });
