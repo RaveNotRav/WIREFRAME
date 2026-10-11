@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%">
+  <defs>
+    <!-- Center Radial Mask: Keeps Neumorphic shadows 100% clean and deep -->
+    <radialGradient id="neumorphicClearance" cx="50%" cy="50%" r="48%">
+      <stop offset="0%" stop-color="#1a1d20" stop-opacity="0.95"/>
+      <stop offset="35%" stop-color="#1a1d20" stop-opacity="0.75"/>
+      <stop offset="70%" stop-color="#1a1d20" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#1a1d20" stop-opacity="0"/>
+    </radialGradient>
+    <style>
+      .cad-line { stroke: rgba(255, 255, 255, 0.16); fill: none; stroke-linecap: round; }
+      .cable-primary { stroke: rgba(255, 255, 255, 0.20); fill: none; stroke-width: 1.5; }
+      .cable-secondary { stroke: rgba(255, 255, 255, 0.12); fill: none; stroke-width: 1.2; }
+      .accent-dot { fill: #D4A359; }
+      .cad-text { fill: rgba(255, 255, 255, 0.35); font-family: monospace; font-size: 11px; }
+    </style>
+  </defs>
+
+  <!-- Left Utility Pole Assembly -->
+  <g id="left-pole" transform="translate(180, 0)">
+    <!-- Main Pole Shaft -->
+    <line x1="0" y1="80" x2="0" y2="1080" stroke="rgba(255,255,255,0.18)" stroke-width="4"/>
+    <!-- Crossarms -->
+    <line x1="-120" y1="160" x2="120" y2="160" stroke="rgba(255,255,255,0.22)" stroke-width="3"/>
+    <line x1="-100" y1="280" x2="100" y2="280" stroke="rgba(255,255,255,0.22)" stroke-width="3"/>
+    <!-- Diagonal Braces -->
+    <line x1="-80" y1="160" x2="0" y2="210" class="cad-line" stroke-width="1.5"/>
+    <line x1="80" y1="160" x2="0" y2="210" class="cad-line" stroke-width="1.5"/>
+    <!-- Transformer Unit (Clean Rectangular CAD) -->
+    <rect x="-70" y="320" width="55" height="90" rx="4" class="cad-line" stroke-width="1.5"/>
+    <circle cx="-55" cy="312" r="4" class="cad-line"/>
+    <circle cx="-30" cy="312" r="4" class="cad-line"/>
+  </g>
+
+  <!-- Right Utility Pole Assembly -->
+  <g id="right-pole" transform="translate(1740, 0)">
+    <!-- Main Pole Shaft -->
+    <line x1="0" y1="80" x2="0" y2="1080" stroke="rgba(255,255,255,0.18)" stroke-width="4"/>
+    <!-- Crossarms -->
+    <line x1="-120" y1="160" x2="120" y2="160" stroke="rgba(255,255,255,0.22)" stroke-width="3"/>
+    <line x1="-100" y1="280" x2="100" y2="280" stroke="rgba(255,255,255,0.22)" stroke-width="3"/>
+    <!-- Transformer Unit -->
+    <rect x="15" y="320" width="55" height="90" rx="4" class="cad-line" stroke-width="1.5"/>
+    <circle cx="30" cy="312" r="4" class="cad-line"/>
+    <circle cx="55" cy="312" r="4" class="cad-line"/>
+  </g>
+
+  <!-- Smooth Overhead Catenary Cable Spans (Gravity Arcs, No Scribbles) -->
+  <g id="catenary-cables">
+    <!-- Top Spans (Above login card) -->
+    <path d="M 60 160 Q 960 270 1860 160" class="cable-primary"/>
+    <path d="M 180 160 Q 960 300 1740 160" class="cable-secondary"/>
+    
+    <!-- Mid Spans (Sweeping smoothly behind card) -->
+    <path d="M 80 280 Q 960 490 1840 280" class="cable-primary"/>
+    <path d="M 180 280 Q 960 520 1740 280" class="cable-secondary"/>
+    
+    <!-- Lower Spans & Service Drops (Below card level) -->
+    <path d="M 125 410 Q 960 760 1770 410" class="cable-primary"/>
+    <path d="M 110 390 Q 960 810 1755 390" class="cable-secondary"/>
+    <path d="M 180 360 Q 960 860 1740 360" class="cable-secondary"/>
+
+    <!-- Clean Transformer Drop Loops (Organized, no curls) -->
+    <path d="M 125 320 Q 90 440 135 480 Q 180 440 145 320" class="cad-line" stroke-width="1"/>
+    <path d="M 1770 320 Q 1805 440 1760 480 Q 1715 440 1750 320" class="cad-line" stroke-width="1"/>
+  </g>
+
+  <!-- Technical CV Anchor Nodes & Dimension Points -->
+  <g id="cv-nodes">
+    <circle cx="640" cy="245" r="3.5" class="accent-dot"/>
+    <circle cx="1280" cy="245" r="3.5" class="accent-dot"/>
+    <circle cx="1320" cy="690" r="3" class="accent-dot"/>
+    <text x="655" y="249" class="cad-text">NODE_01 // SAG_OK</text>
+    <text x="1335" y="694" class="cad-text">Δy = 0.38m</text>
+  </g>
+
+  <!-- Soft Center Neumorphic Clearance Mask -->
+  <rect width="1920" height="1080" fill="url(#neumorphicClearance)"/>
+</svg>

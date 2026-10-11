@@ -1,0 +1,362 @@
+/* components.css - Pre-styled components utilizing tokens and neumorphism */
+
+/* Inputs & Selects */
+.neu-input, .neu-select {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: var(--radius-control);
+    background-color: var(--surface-bg);
+    color: var(--text-primary);
+    font-size: 1rem;
+    box-shadow: var(--neu-pressed);
+    box-sizing: border-box;
+    font-family: inherit;
+    transition: all 0.2s ease-in-out;
+}
+
+.neu-input::placeholder {
+    color: var(--text-muted);
+}
+
+.neu-input:disabled, .neu-select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Autofill override */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+    -webkit-box-shadow: inset -4px -4px 8px var(--shadow-light), inset 4px 4px 8px var(--shadow-dark), 0 0 0px 1000px var(--surface-bg) inset !important;
+    -webkit-text-fill-color: var(--text-primary) !important;
+    transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Form Groups */
+.neu-form-group {
+    margin-bottom: 16px;
+}
+.neu-form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+/* Badges */
+.neu-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius-pill);
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: var(--neu-raised-sm);
+    color: var(--text-primary);
+}
+
+/* Badge Pseudo-element removed in favor of inline SVGs */
+
+/* Badge SVG Icon Colors */
+.neu-badge svg circle { fill: var(--text-muted); transition: fill 0.3s; }
+.neu-badge[data-risk="Safe"] svg circle { fill: var(--risk-low); }
+.neu-badge[data-risk="Caution"] svg circle { fill: var(--risk-moderate); }
+.neu-badge[data-risk="Unsafe"] svg circle { fill: var(--risk-high); }
+.neu-badge[data-risk="Critical"] svg circle { fill: var(--risk-critical); }
+
+/* Dropzone */
+.neu-dropzone {
+    border: none;
+    box-shadow: var(--neu-pressed);
+    background-color: var(--surface-bg);
+    border-radius: var(--radius-tile);
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.neu-dropzone:hover, .neu-dropzone.dragover {
+    box-shadow: inset -6px -6px 12px var(--shadow-light), inset 6px 6px 12px var(--shadow-dark);
+    filter: brightness(0.95);
+}
+
+.neu-dropzone input[type="file"] {
+    display: none;
+}
+
+/* Progress / Stepper */
+.neu-stepper {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.neu-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-muted);
+}
+
+.neu-step.active {
+    color: var(--color-primary);
+    font-weight: 600;
+}
+
+.neu-step.completed {
+    color: var(--text-primary);
+}
+
+.neu-step-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    box-shadow: var(--neu-raised-sm);
+}
+
+.neu-step.active .neu-step-icon {
+    box-shadow: var(--neu-pressed);
+    background-color: var(--color-primary);
+    color: white;
+}
+
+/* Skeleton Loader */
+.neu-skeleton {
+    background: linear-gradient(90deg, 
+        rgba(128, 128, 128, 0.1) 25%, 
+        rgba(128, 128, 128, 0.2) 50%, 
+        rgba(128, 128, 128, 0.1) 75%);
+    background-size: 400% 100%;
+    animation: neu-shimmer 1.5s infinite;
+    border-radius: 4px;
+}
+
+@keyframes neu-shimmer {
+    0% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Modals */
+.neu-modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.neu-modal-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.neu-modal {
+    padding: 24px;
+    border-radius: var(--radius-tile);
+    width: 90%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    transform: translateY(20px);
+    transition: transform 0.3s ease;
+}
+
+.neu-modal-overlay.open .neu-modal {
+    transform: translateY(0);
+}
+
+/* Toast */
+.neu-toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    z-index: 2000;
+}
+
+.neu-toast {
+    padding: 16px 24px;
+    border-radius: var(--radius-control);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transform: translateX(100%);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.neu-toast.show {
+    transform: translateX(0);
+    opacity: 1;
+}
+
+/* Slider (Range Input) */
+.neu-range {
+    -webkit-appearance: none;
+    width: 100%;
+    background: transparent;
+}
+
+.neu-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 24px;
+    width: 24px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    cursor: pointer;
+    margin-top: -10px;
+    box-shadow: var(--neu-raised-sm);
+}
+
+.neu-range::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 4px;
+    cursor: pointer;
+    background: var(--text-muted);
+    border-radius: 2px;
+    box-shadow: var(--neu-pressed);
+}
+
+/* CRS Gauge */
+.neu-gauge-container {
+    position: relative;
+    height: 20px;
+    width: 100%;
+    background: var(--surface-bg);
+    border-radius: 10px;
+    box-shadow: var(--neu-pressed);
+    overflow: hidden;
+    margin: 10px 0;
+}
+.neu-gauge-fill {
+    height: 100%;
+    width: 0%;
+    transition: width 0.5s ease;
+    border-radius: 10px;
+}
+/* Risk Gauge Markers */
+.neu-gauge-markers {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+}
+.neu-gauge-marker {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: var(--surface-bg);
+}
+
+/* States */
+.neu-empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+}
+.neu-error-state {
+    text-align: center;
+    padding: 24px;
+    color: var(--color-error);
+    background: rgba(231, 76, 60, 0.1);
+    border-radius: var(--radius-control);
+}
+
+
+/* Pills */
+.neu-pill {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    box-shadow: var(--neu-raised-sm);
+}
+.neu-pill-safety-safe { background: var(--risk-low); color: white; }
+.neu-pill-safety-caution { background: var(--risk-moderate); color: white; }
+.neu-pill-safety-unsafe { background: var(--risk-high); color: white; }
+.neu-pill-safety-critical { background: var(--risk-critical); color: white; }
+
+
+/* Skeleton Loaders */
+.neu-skeleton {
+    background: linear-gradient(90deg, var(--surface-bg) 25%, rgba(128, 128, 128, 0.1) 50%, var(--surface-bg) 75%);
+    background-size: 200% 100%;
+    animation: neuSkeletonShimmer 1.5s infinite;
+    border-radius: var(--radius-control);
+    color: transparent !important;
+    min-height: 24px;
+    display: inline-block;
+    width: 100%;
+    pointer-events: none;
+    box-shadow: var(--neu-inset);
+}
+.neu-skeleton > * {
+    opacity: 0 !important;
+}
+@keyframes neuSkeletonShimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Data Table Styling */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: var(--spacing-sm);
+}
+
+.data-table th,
+.data-table td {
+    padding: var(--spacing-md);
+    text-align: center;
+    border-bottom: 1px solid var(--surface-sunken);
+}
+
+.data-table th {
+    font-weight: var(--font-weight-bold);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+.data-table tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+.data-table tbody tr:hover {
+    background-color: var(--surface-sunken);
+}
+
+/* Dropdown Option Styling */
+option {
+    background-color: var(--surface-bg);
+    color: var(--text-primary);
+}

@@ -1,0 +1,13 @@
+# YOLO11-Seg Dataset configuration
+path: datasets/wireframe_seg  # dataset root dir
+train: images/train
+val: images/test
+test: images/test
+
+# Classes dictionary
+names:
+  0: power_line
+  1: telecom_cable
+  2: fiber_optic
+  3: dead_abandoned
+  4: pole

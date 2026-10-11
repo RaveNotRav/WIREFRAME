@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WIREFRAME - Dashboard</title>
+    
+    <link rel="stylesheet" href="/assets/css/tokens.css?v=2">
+    <link rel="stylesheet" href="/assets/css/neumorphism.css">
+    <link rel="stylesheet" href="/assets/css/bento.css">
+    <link rel="stylesheet" href="/assets/css/components.css?v=3">
+    <link rel="stylesheet" href="/assets/css/global-header.css">
+    
+    <style>
+        /* Specific dashboard overrides if needed */
+        #dashboard-container {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-xl);
+            padding: var(--spacing-xl);
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .sub-nav {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-lg);
+            border-bottom: 2px solid var(--surface-raised);
+            padding-bottom: var(--spacing-sm);
+        }
+        
+        .sub-nav-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: var(--font-size-md);
+            font-weight: var(--font-weight-medium);
+            padding: var(--spacing-sm) var(--spacing-md);
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            transition: all var(--transition-fast);
+        }
+        
+        .sub-nav-btn.active {
+            color: var(--primary);
+            background: var(--surface-raised);
+            box-shadow: var(--shadow-neu-pressed);
+        }
+
+        .view-section {
+            display: none;
+        }
+        .view-section.active {
+            display: block;
+        }
+        
+        /* KPI Row */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: var(--spacing-lg);
+            margin-bottom: var(--spacing-xl);
+        }
+        
+        .kpi-card {
+            padding: var(--spacing-lg);
+            text-align: center;
+        }
+        
+        .kpi-value {
+            font-size: 2.5rem;
+            font-weight: var(--font-weight-bold);
+            color: var(--text-primary);
+            margin-bottom: var(--spacing-xs);
+        }
+        
+        .kpi-label {
+            font-size: var(--font-size-sm);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+        }
+        
+        /* Heatmap Grid */
+        .heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: var(--spacing-sm);
+            margin-top: var(--spacing-md);
+        }
+        
+        .heatmap-cell {
+            aspect-ratio: 1;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+            position: relative;
+        }
+        
+        .heatmap-cell:hover, .heatmap-cell:focus {
+            transform: scale(1.1);
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
+            z-index: 10;
+        }
+        
+        /* Tooltip */
+        .heatmap-cell[data-tooltip]::before {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 110%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--surface-raised);
+            color: var(--text-primary);
+            padding: var(--spacing-xs) var(--spacing-sm);
+            border-radius: var(--radius-sm);
+            font-size: var(--font-size-xs);
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity var(--transition-fast);
+            box-shadow: var(--shadow-neu-raised);
+            z-index: 20;
+            pointer-events: none;
+        }
+        
+        .heatmap-cell:hover::before, .heatmap-cell:focus::before {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        /* Class distribution bars */
+        .dist-item {
+            margin-bottom: var(--spacing-md);
+        }
+        
+        .dist-label-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: var(--spacing-xs);
+            font-size: var(--font-size-sm);
+        }
+        
+        .dist-track {
+            height: 8px;
+            background: var(--surface-sunken);
+            border-radius: var(--radius-pill);
+            overflow: hidden;
+        }
+        
+        .dist-fill {
+            height: 100%;
+            background: var(--primary);
+            border-radius: var(--radius-pill);
+            width: 0; /* Animated via JS */
+            transition: width 1s ease-out;
+        }
+        
+        /* Heatmap Risk Colors */
+        .risk-Low { background-color: var(--risk-low); }
+        .risk-Moderate { background-color: var(--risk-moderate); }
+        .risk-High { background-color: var(--risk-high); }
+        .risk-Critical { background-color: var(--risk-critical); }
+        .risk-Unknown { background-color: var(--surface-sunken); }
+
+        .svg-container {
+            width: 100%;
+            height: 300px;
+        }
+        .svg-trend-line {
+            fill: none;
+            stroke: var(--text-secondary);
+            stroke-width: 2;
+        }
+        .svg-trend-point {
+            fill: var(--surface-bg);
+            stroke: var(--text-secondary);
+            stroke-width: 2;
+        }
+        .svg-axis-text {
+            fill: var(--text-secondary);
+            font-size: 12px;
+            font-family: inherit;
+        }
+        
+        /* Accessible fallback for trend */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+    </style>
+</head>
+<body class="neu-app">
+    <header class="neu-header">
+        <a href="/" class="neu-header-logo" style="display: flex; align-items: center; gap: 12px;"><img src="/assets/img/logo-icon.png" alt="Logo Icon" style="height: 48px; object-fit: contain;"><img src="/assets/img/logo-text.png" alt="WIREFRAME" style="height: 30px; object-fit: contain;"></a>
+                <div class="neu-header-nav">
+            <a href="/dashboard.html" class="neu-button neu-flat" id="nav-dashboard">Dashboard</a>
+            <a href="/analyze.html" class="neu-button neu-flat" id="nav-analyze">Analyze</a>
+            <a href="/history.html" class="neu-button neu-flat" id="nav-history">History</a>
+            <span class="neu-header-userinfo"><span id="user-name">Loading...</span> (<span id="user-role" class="neu-header-role">...</span>)</span>
+            <button class="neu-theme-toggle" id="theme-toggle" aria-label="Toggle theme"><svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path></svg></button>
+            <button class="neu-button neu-raised-sm" id="btn-logout">Logout</button>
+        </div>
+    </header>
+
+    <main id="dashboard-container">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1 class="page-title">Dashboard</h1>
+            <div id="mock-toggle-container" style="display: none;" class="neu-sunken" style="padding: 10px; border-radius: 8px;">
+                <label>
+                    <input type="checkbox" id="include-mock-toggle">
+                    Include Mock Data
+                </label>
+            </div>
+        </div>
+
+        <nav class="sub-nav">
+            <button class="sub-nav-btn active" data-target="view-overview">Overview: Summary / Risk Map / Trend Analysis</button>
+            <button class="sub-nav-btn" data-target="view-data">Data: All Analyses</button>
+        </nav>
+
+        <!-- OVERVIEW VIEW -->
+        <section id="view-overview" class="view-section active">
+            <!-- KPIs -->
+            <div class="kpi-row">
+                <div class="kpi-card neu-raised bento-tile">
+                    <div class="kpi-value neu-skeleton" id="kpi-total" style="min-width: 60px; display: inline-block;">-</div>
+                    <div class="kpi-label">Total Analyses</div>
+                        <div class="sparkline-container" id="sparkline-total" style="height: 30px; margin-top: 10px;"></div>
+                </div>
+                <div class="kpi-card neu-raised bento-tile">
+                    <div class="kpi-value neu-skeleton" id="kpi-high-critical" style="min-width: 60px; display: inline-block;">-</div>
+                    <div class="kpi-label">High/Critical Risks</div>
+                </div>
+                <div class="kpi-card neu-raised bento-tile">
+                    <div class="kpi-value neu-skeleton" id="kpi-avg-risk" style="min-width: 60px; display: inline-block;">-</div>
+                    <div class="kpi-label">Avg Risk Score</div>
+                        <div class="sparkline-container" id="sparkline-risk" style="height: 30px; margin-top: 10px;"></div>
+                </div>
+                <div class="kpi-card neu-raised bento-tile">
+                    <div class="kpi-value neu-skeleton" id="kpi-today" style="min-width: 60px; display: inline-block;">-</div>
+                    <div class="kpi-label">Processed Today</div>
+                </div>
+            </div>
+
+            <div class="bento-grid">
+                <!-- Risk Heatmap Grid -->
+                <div class="bento-tile bento-s neu-raised">
+                    <div style="margin-bottom: var(--spacing-sm);">
+                        <h3 style="margin: 0;">Recent Risk Heatmap</h3>
+                    </div>
+                    <div class="heatmap-grid" id="heatmap-container" role="grid" aria-label="Risk Heatmap of Recent Analyses">
+                        <!-- Cells injected via JS -->
+                    </div>
+                    <div style="margin-top: var(--spacing-md); display: flex; justify-content: center; align-items: center;">
+                        <div class="legend" style="display: flex; gap: var(--spacing-sm);">
+                            <span class="neu-pill neu-pill-safety-safe">Low</span>
+                            <span class="neu-pill neu-pill-safety-caution">Moderate</span>
+                            <span class="neu-pill neu-pill-safety-unsafe">High</span>
+                            <span class="neu-pill neu-pill-safety-critical">Critical</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Class Distribution Bars -->
+                <div class="bento-tile bento-s neu-raised">
+                    <h3>Wire Class Distribution</h3>
+                    <div id="distribution-container">
+                        <!-- Bars injected via JS -->
+                    </div>
+                </div>
+                
+                <!-- Expanded Trend View -->
+                <div class="bento-tile bento-xxl neu-raised">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-md);">
+                        <h3>Trend Analysis</h3>
+                        <select id="trend-days" class="neu-sunken" style="padding: 5px; border: none; border-radius: 4px; color: inherit; background: transparent;">
+                            <option value="7">Last 7 Days</option>
+                            <option value="30" selected>Last 30 Days</option>
+                            <option value="90">Last 90 Days</option>
+                        </select>
+                    </div>
+                    <div class="svg-container" id="trend-svg-container" role="img" aria-label="Line chart showing risk trend over time">
+                        <!-- SVG injected here -->
+                    </div>
+                    
+                    <!-- Accessible Table Fallback -->
+                    <table class="sr-only" id="trend-accessible-table">
+                        <caption>Trend Data Table</caption>
+                        <thead>
+                            <tr>
+                                <th scope="col">Date</th>
+                                <th scope="col">Analysis Count</th>
+                                <th scope="col">Average Risk</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trend-table-body">
+                            <!-- Rows injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- DATA VIEW -->
+        <section id="view-data" class="view-section">
+            <div class="bento-tile bento-xxl neu-raised">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-md);">
+                    <h3>All Analyses</h3>
+                </div>
+                
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Date</th>
+                            <th>Company</th>
+                            <th>Site / Street</th>
+                            <th>Barangay</th>
+                            <th>Status</th>
+                            <th>Risk Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="analyses-table-body">
+                        <tr><td colspan="7"><div class="neu-skeleton" style="width: 100%;"></div></td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+
+    <script type="module" src="/assets/js/dashboard.js?v=4"></script>
+</body>
+</html>

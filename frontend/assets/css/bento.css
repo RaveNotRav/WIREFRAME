@@ -1,0 +1,92 @@
+/* bento.css - 12-column Bento Grid Layout */
+
+.bento-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-auto-flow: dense;
+    gap: 24px;
+    padding: 24px;
+    max-width: 1440px;
+    margin: 0 auto;
+}
+
+/* Bento Tile Anatomy */
+.bento-tile {
+    border-radius: var(--radius-tile);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.bento-tile-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.bento-tile-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.bento-tile-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.bento-tile-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 8px 0;
+    color: var(--text-primary);
+}
+
+.bento-tile-subtext {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.bento-tile-footer {
+    margin-top: 16px;
+    border-top: 1px solid rgba(128, 128, 128, 0.2);
+    padding-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* Size Classes */
+/* s: 3 cols, m: 4 cols, l: 6 cols, xl: 8 cols, xxl: 12 cols */
+.bento-s { grid-column: span 3; }
+.bento-m { grid-column: span 4; }
+.bento-l { grid-column: span 6; }
+.bento-xl { grid-column: span 8; }
+.bento-xxl { grid-column: span 12; }
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+    .bento-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+    .bento-s, .bento-m { grid-column: span 3; }
+    .bento-l { grid-column: span 6; }
+    .bento-xl, .bento-xxl { grid-column: span 6; }
+}
+
+@media (max-width: 640px) {
+    .bento-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+        padding: 16px;
+    }
+    .bento-s, .bento-m, .bento-l, .bento-xl, .bento-xxl {
+        grid-column: span 1;
+    }
+}

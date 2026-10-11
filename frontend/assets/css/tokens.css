@@ -1,0 +1,155 @@
+/* tokens.css - Core variables for Neumorphism, layout, and colors */
+
+:root, [data-theme="light"] {
+    color-scheme: light;
+    /* Spacing */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+
+    /* Font Sizes */
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-md: 1rem;
+    --font-size-lg: 1.25rem;
+    --font-size-xl: 1.5rem;
+
+    /* Font Weights */
+    --font-weight-medium: 500;
+    --font-weight-bold: 700;
+
+    /* Extra Radii */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    
+    --surface-raised: rgba(128, 128, 128, 0.2);
+
+    /* Base Surface */
+    --surface-bg: #E4E9F0;
+    --text-primary: #1F2C38;
+    --text-secondary: #40505E;
+    --text-muted: #576574;
+    --text-disabled: #7c8594;
+
+    /* Neumorphic Shadows */
+    --shadow-light: #ffffff;
+    --shadow-dark: rgba(163, 177, 198, 0.55);
+    
+    /* Neumorphic Shadow Definitions */
+    --neu-raised: -8px -8px 16px var(--shadow-light), 8px 8px 16px var(--shadow-dark);
+    --neu-raised-sm: -4px -4px 8px var(--shadow-light), 4px 4px 8px var(--shadow-dark);
+    --neu-pressed: inset -4px -4px 8px var(--shadow-light), inset 4px 4px 8px var(--shadow-dark);
+
+    
+    /* Borders */
+    --border-subtle: 1px solid #7c8594;
+    --focus-ring: 3px solid #2980b9;
+
+    /* Radius */
+    --radius-tile: 24px;
+    --radius-control: 14px;
+    --radius-pill: 9999px;
+
+    /* Semantic Colors - Risk */
+    --risk-low: #145A32;      /* Green */
+    --risk-moderate: #935116; /* Amber */
+    --risk-high: #A04000;     /* Orange */
+    --risk-critical: #A93226; /* Red */
+    
+    /* Semantic Colors - Wire Classes */
+    --wire-power_line: #A93226;    
+    --wire-telecom_cable: #145A32;  
+    --wire-fiber_optic: #3498db;    
+    --wire-dead_abandoned: #9b59b6;     
+
+
+
+    /* Hero Image Overlays */
+    --hero-overlay-gradient: linear-gradient(to right, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.4) 100%);
+    --hero-text-color: #1F2C38;
+
+    /* Hero Illustration Colors */
+    --hero-pole-fill: #7c8594;
+    --hero-pole-stroke: #40505E;
+    --hero-wire-stroke: #3498db;
+
+    /* Generic UI Colors */
+    --color-primary: #3498db;
+    --color-error: #A93226;
+    --color-success: #145A32;
+    --color-warning: #935116;
+
+    /* Typography */
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+[data-theme="dark"] {
+    color-scheme: dark;
+    /* Base Surface */
+    --surface-bg: #1a1a1a;
+    --text-primary: #f5f5f5;
+    --text-secondary: #c9a24b; /* Gold accents */
+    --text-muted: #888888;
+    --text-disabled: #555555;
+
+    /* Neumorphic Shadows - recalculated for #1a1a1a base */
+    --shadow-light: #262626;
+    --shadow-dark: #0e0e0e;
+
+    
+    /* Borders */
+    --border-subtle: 1px solid #333333;
+    --focus-ring: 3px solid #c9a24b;
+
+
+
+    /* Hero Image Overlays */
+    --hero-overlay-gradient: linear-gradient(to right, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 100%);
+    --hero-text-color: #f5f5f5;
+
+    /* Hero Illustration Colors */
+    --hero-pole-fill: #444444;
+    --hero-pole-stroke: #888888;
+    --hero-wire-stroke: #888888;
+
+    /* Generic UI Colors */
+    --color-primary: #c9a24b;
+
+    /* Adjust risk colors for better contrast in dark mode */
+    --risk-low: #2ecc71;
+    --risk-moderate: #f1c40f;
+    --risk-high: #e67e22;
+    --risk-critical: #FF6B6B;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        /* Base Surface */
+        --surface-bg: #1a1a1a;
+        --text-primary: #f5f5f5;
+        --text-secondary: #c9a24b; /* Gold accents */
+        --text-muted: #888888;
+        --text-disabled: #555555;
+    
+        /* Neumorphic Shadows */
+        --shadow-light: #262626;
+        --shadow-dark: #0e0e0e;
+    
+        
+    /* Borders */
+        --border-subtle: 1px solid #333333;
+        --focus-ring: 3px solid #c9a24b;
+
+        /* Generic UI Colors */
+        --color-primary: #c9a24b;
+
+        /* Adjust risk colors */
+        --risk-low: #2ecc71;
+        --risk-moderate: #f1c40f;
+        --risk-high: #e67e22;
+        --risk-critical: #FF6B6B;
+    }
+}

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyze - WIREFRAME</title>
+    <!-- Scoped CSS -->
+    <link rel="stylesheet" href="/assets/css/tokens.css">
+    <link rel="stylesheet" href="/assets/css/neumorphism.css">
+    <link rel="stylesheet" href="/assets/css/bento.css">
+    <link rel="stylesheet" href="/assets/css/components.css">
+    <link rel="stylesheet" href="/assets/css/global-header.css?v=3">
+    <style>
+        /* Specific page overrides */
+        #canvas-modal-container {
+            position: relative;
+            width: 100%;
+            height: 60vh;
+            background: #000;
+        }
+        #calibration-canvas, #calibration-img {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body class="neu-app">
+    
+    <header class="neu-header">
+        <a href="/" class="neu-header-logo" style="display: flex; align-items: center; gap: 12px;"><img src="/assets/img/logo-icon.png" alt="Logo Icon" style="height: 48px; object-fit: contain;"><img src="/assets/img/logo-text.png" alt="WIREFRAME" style="height: 30px; object-fit: contain;"></a>
+        <div class="neu-header-nav">
+            <a href="/dashboard.html" class="neu-button neu-flat auth-only-nav" id="nav-dashboard" style="display: none;">Dashboard</a>
+            <a href="/analyze.html" class="neu-button neu-flat auth-only-nav" id="nav-analyze" style="display: none;">Analyze</a>
+            <a href="/history.html" class="neu-button neu-flat auth-only-nav" id="nav-history" style="display: none;">History</a>
+            <span class="neu-header-userinfo"><span id="user-name">Loading...</span> (<span id="user-role" class="neu-header-role">...</span>)</span>
+            <button class="neu-theme-toggle" id="theme-toggle" aria-label="Toggle theme"><svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path></svg></button>
+            <button class="neu-button neu-raised-sm" id="btn-logout" style="display: none;">Logout</button>
+        </div>
+    </header>
+
+    <div id="mock-watermark" class="mock-watermark" style="display: none; position: fixed; top: 80px; right: 20px; background: rgba(255, 0, 0, 0.7); color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; pointer-events: none; z-index: 100;">MOCK DATA</div>
+
+
+    <!-- Global Stepper -->
+    <div class="global-stepper" id="global-stepper" style="display: flex; justify-content: space-between; align-items: center; max-width: 600px; margin: 0 auto 30px auto; position: relative; padding: 20px;">
+        <div style="position: absolute; top: 50%; left: 10%; right: 10%; height: 2px; background: var(--border-subtle); z-index: 1;"></div>
+        
+        <div class="stepper-step active" id="step-upload" style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+            <div class="step-circle" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; justify-content: center; align-items: center; font-weight: bold; box-shadow: var(--neu-raised-sm);">1</div>
+            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary);">Upload</span>
+        </div>
+        
+        <div class="stepper-step" id="step-processing" style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px; opacity: 0.5;">
+            <div class="step-circle" style="width: 32px; height: 32px; border-radius: 50%; background: var(--surface-bg); border: 2px solid var(--border-subtle); color: var(--text-secondary); display: flex; justify-content: center; align-items: center; font-weight: bold;">2</div>
+            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Processing</span>
+        </div>
+        
+
+    </div>
+
+    <main class="bento-grid" id="main-grid">
+
+        
+        <!-- Dropzone / Upload -->
+        <div class="bento-tile bento-xl neu-raised" id="tile-upload">
+            <div class="bento-tile-header">
+                <h2 class="bento-tile-title">Import Pictures</h2>
+            </div>
+            <div class="bento-tile-body">
+                <label class="neu-dropzone" tabindex="0" id="dropzone">
+                    <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 10px;">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                    </div>
+                    <div>Drag and drop images here, or click to capture/browse</div>
+                    <div class="bento-tile-subtext">Supports JPG, PNG (Max 10MB, up to 10 files)</div>
+                    <input type="file" id="file-input" multiple accept="image/jpeg,image/png" capture="environment">
+                </label>
+                <div id="thumbnails" style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap;"></div>
+            </div>
+        </div>
+
+        <!-- Capture Details (Form) -->
+        <div class="bento-tile bento-m neu-raised" id="tile-details">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Capture Details</h3>
+            </div>
+            <div class="bento-tile-body">
+                <div class="neu-form-group">
+                    <label class="neu-form-label">Company</label>
+                    <input type="text" class="neu-input" id="input-company" placeholder="e.g. Meralco" autocomplete="off" required minlength="2" maxlength="100">
+                </div>
+                <div class="neu-form-group">
+                    <label class="neu-form-label">Barangay</label>
+                    <input type="text" class="neu-input" id="input-barangay" placeholder="e.g. San Antonio" autocomplete="off" required minlength="2" maxlength="80">
+                </div>
+                <div class="neu-form-group">
+                    <label class="neu-form-label">Street</label>
+                    <input type="text" class="neu-input" id="input-street" placeholder="e.g. Pearl Drive" autocomplete="off" required minlength="2" maxlength="120">
+                </div>
+                <div class="neu-form-group">
+                    <label class="neu-form-label">Additional Details / Notes</label>
+                    <textarea class="neu-input" id="input-notes" placeholder="e.g. Context or conditions" rows="2" style="resize: vertical;"></textarea>
+                </div>
+                <div class="neu-form-group">
+                    <label class="neu-form-label">GPS Location</label>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <input type="number" step="any" class="neu-input" id="input-lat" placeholder="Lat (e.g. 14.59)" style="flex: 1; min-width: 100px;">
+                        <input type="number" step="any" class="neu-input" id="input-lng" placeholder="Lng (e.g. 120.98)" style="flex: 1; min-width: 100px;">
+                        <button class="neu-button neu-raised-sm" id="btn-gps" title="Use My Location" style="display: flex; align-items: center; justify-content: center; padding: 0 12px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                        </button>
+                    </div>
+                    <div id="gps-source-text" style="font-size: 0.85rem; color: var(--text-muted); margin-top: 5px;"></div>
+                </div>
+                <button class="neu-button neu-raised" id="btn-analyze" style="width: 100%; margin-top: 10px;">Analyze</button>
+            </div>
+        </div>
+
+        <!-- Batch Switcher -->
+        <div class="bento-tile bento-xl neu-raised" id="tile-batch" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Batch Results</h3>
+            </div>
+            <div class="bento-tile-body">
+                <div style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px;" id="batch-tabs"></div>
+            </div>
+        </div>
+
+        <!-- Pipeline Progress -->
+        <div class="bento-tile bento-m neu-raised" id="tile-progress" style="display: none;" aria-live="polite">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Pipeline Status</h3>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <span class="neu-badge" id="status-badge" data-risk="Unknown">Queued</span>
+                    <button class="neu-button neu-flat" id="btn-cancel" style="padding: 2px 8px; font-size: 0.8rem; display: none;">Cancel</button>
+                    <a href="#" id="btn-download-pdf" target="_blank" class="neu-button neu-flat" style="padding: 2px 8px; font-size: 0.8rem; display: none;" download>Download PDF</a>
+                </div>
+            </div>
+            <div class="bento-tile-body">
+                <div class="neu-stepper" id="stepper">
+                    <!-- Dynamic Steps -->
+                </div>
+                <div id="status-reason" style="margin-top: 10px; color: var(--color-error); font-size: 0.9rem;"></div>
+            </div>
+        </div>
+
+
+        <!-- Original vs Annotated Slider -->
+        <div class="bento-tile bento-xl neu-raised" id="tile-image" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Image Analysis</h3>
+            </div>
+            <div class="bento-tile-body">
+                <div id="analysis-metadata" style="display: none; padding: 10px; background: var(--bg-card-alt); border-radius: var(--radius-control); margin-bottom: 10px; font-size: 0.9rem; text-align: left; width: 100%;">
+                    <strong>Company:</strong> <span id="meta-company">--</span><br>
+                    <strong>Location:</strong> <span id="meta-location">--</span><br>
+                    <div id="meta-notes-container" style="display: none; margin-top: 5px;">
+                        <strong>Notes:</strong> <span id="meta-notes" style="font-style: italic;"></span>
+                    </div>
+                </div>
+                <img id="img-annotated" style="width: 100%; max-height: 400px; object-fit: contain; border-radius: var(--radius-control); background: #000;" alt="Annotated Image" crossorigin="use-credentials">
+                <div class="bento-tile-footer">
+                    <button class="neu-button neu-raised-sm" id="btn-calibrate">Manual Calibration Tool</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Safety Badge -->
+        <div class="bento-tile bento-m neu-raised" id="tile-safety" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Overall Safety</h3>
+            </div>
+            <div class="bento-tile-body" style="align-items: center;">
+                <div class="neu-badge" id="safety-badge" data-risk="Unknown" style="font-size: 1.5rem; padding: 12px 24px;">Unknown</div>
+                <ul id="safety-reasons" style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 16px; padding-left: 20px;">
+                    <!-- Reasons populated via JS -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- Action Recommendations -->
+        <div class="bento-tile bento-m neu-raised" id="tile-action" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Recommended Action</h3>
+            </div>
+            <div class="bento-tile-body" style="align-items: center; text-align: center; justify-content: center; min-height: 100px;">
+                <div id="action-text" style="font-size: 1.1rem; font-weight: 500; color: var(--text-primary);">--</div>
+            </div>
+        </div>
+
+        <!-- Catenary Risk Score -->
+        <div class="bento-tile bento-m neu-raised" id="tile-crs" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Catenary Risk Score (CRS)</h3>
+            </div>
+            <div class="bento-tile-body">
+                <div class="bento-tile-value" id="crs-value">--</div>
+                <div class="bento-tile-subtext" id="crs-band">--</div>
+                
+                <div class="neu-gauge-container" role="meter" id="crs-gauge" aria-valuenow="0" aria-valuemin="0" aria-valuemax="1" aria-valuetext="0.00" aria-label="CRS Gauge">
+                    <div class="neu-gauge-fill" id="crs-fill" style="width: 0%; background-color: var(--text-muted);"></div>
+                    <div class="neu-gauge-markers">
+                        <div class="neu-gauge-marker" style="left: 33%;"></div>
+                        <div class="neu-gauge-marker" style="left: 67%;"></div>
+                        <div class="neu-gauge-marker" style="left: 86%;"></div>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">
+                    <span>0</span>
+                    <span>0.33</span>
+                    <span>0.66</span>
+                    <span>0.85</span>
+                    <span>1</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Wire Sag & Clearance -->
+        <div class="bento-tile bento-m neu-raised" id="tile-sag" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Wire Sag & Clearance</h3>
+            </div>
+            <div class="bento-tile-body">
+                <div class="bento-tile-value" id="sag-value">-- m</div>
+                <div class="bento-tile-subtext">Estimated Max Sag</div>
+                <div class="bento-tile-value" id="clearance-value" style="font-size: 1.5rem; margin-top: 12px;">-- m</div>
+                <div class="bento-tile-subtext">Estimated Ground Clearance <br><em>(Photo-based estimate only)</em></div>
+            </div>
+        </div>
+
+        <!-- VNI -->
+        <div class="bento-tile bento-s neu-raised" id="tile-vni" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Vegetation (VNI)</h3>
+            </div>
+            <div class="bento-tile-body">
+                <div class="bento-tile-value" id="vni-value">--</div>
+                <img id="vni-spectrum" style="width: 100%; height: 60px; object-fit: cover; border-radius: 4px; margin-top: 10px;" alt="FFT Spectrum" crossorigin="use-credentials">
+            </div>
+        </div>
+
+        <!-- Wire List -->
+        <div class="bento-tile bento-xl neu-raised" id="tile-wires" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Detected Wires</h3>
+            </div>
+            <div class="bento-tile-body" id="wire-list" style="gap: 12px; display: flex; flex-direction: column; overflow-y: auto; max-height: 300px;">
+                <!-- Populated via JS -->
+            </div>
+        </div>
+        
+        <!-- Authenticity & Disclosures -->
+        <div class="bento-tile bento-l neu-raised" id="tile-disclosure" style="display: none;">
+            <div class="bento-tile-header">
+                <h3 class="bento-tile-title">Disclosures</h3>
+            </div>
+            <div class="bento-tile-body" style="font-size: 0.85rem; color: var(--text-muted);">
+                <p><strong>Authenticity:</strong> Analysis performed on the original image.</p>
+                <p><strong>Enhancement:</strong> A separate copy is used for contrast enhancement for detection.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Calibration Modal -->
+    <div class="neu-modal-overlay" id="calibration-modal" role="dialog" aria-modal="true" aria-labelledby="cal-title">
+        <div class="neu-modal neu-raised">
+            <h2 id="cal-title">Manual Calibration</h2>
+            <p class="bento-tile-subtext">Click 2 points on a known object (e.g. pole) to set scale, or click 3 points on a wire (2 anchors, 1 lowest) for manual sag.</p>
+            
+            <div id="canvas-modal-container">
+                <img id="calibration-img" alt="Calibration View" crossorigin="use-credentials">
+                <canvas id="calibration-canvas" tabindex="0" aria-label="Calibration Canvas - Use arrow keys to move crosshair, Enter to select point"></canvas>
+            </div>
+            
+            <div style="margin-top: 16px; display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                <div class="neu-form-group" style="margin: 0;">
+                    <label class="neu-form-label">X/Y Fallback</label>
+                    <div style="display: flex; gap: 5px;">
+                        <input type="number" id="cal-x" class="neu-input" placeholder="X" style="width: 70px;">
+                        <input type="number" id="cal-y" class="neu-input" placeholder="Y" style="width: 70px;">
+                        <button class="neu-button neu-raised-sm" id="btn-cal-add-pt">Add</button>
+                    </div>
+                </div>
+                <div class="neu-form-group" style="margin: 0; flex: 1; min-width: 150px;">
+                    <label class="neu-form-label">Real Length (meters)</label>
+                    <input type="number" id="cal-length" class="neu-input" min="0.1" max="100" step="0.1" placeholder="e.g. 10">
+                </div>
+                <button class="neu-button neu-raised" id="btn-cal-submit">Calibrate</button>
+                <button class="neu-button neu-flat" id="btn-cal-cancel">Cancel</button>
+            </div>
+            <div id="cal-points-list" style="margin-top: 12px; font-size: 0.85rem; color: var(--text-secondary);" aria-live="polite">
+                Points selected: 0
+            </div>
+        </div>
+    </div>
+
+    <!-- Public Confirmation Modal -->
+    <div class="neu-modal-overlay" id="public-confirmation-modal">
+        <div class="neu-modal neu-raised" style="text-align: center; max-width: 450px;">
+            <div style="width: 64px; height: 64px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+            </div>
+            <h2 style="margin-top: 0; color: var(--text-main);">Report Received</h2>
+            <p style="color: var(--text-muted); font-size: 1.05rem; margin-bottom: 24px;">Your report has been received and processed. Thank you for helping keep your community safe. Our team will review this data.</p>
+            <button class="neu-button neu-raised" onclick="document.getElementById('public-confirmation-modal').classList.remove('open')" style="width: 100%;">Close & View Results</button>
+        </div>
+    </div>
+
+    <div class="neu-toast-container" id="toast-container"></div>
+
+    <script type="module" src="/assets/js/analyze.js"></script>
+</body>
+</html>

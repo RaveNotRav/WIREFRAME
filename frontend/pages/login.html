@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login - WIREFRAME</title>
+    <link rel="stylesheet" href="/assets/css/tokens.css">
+    <link rel="stylesheet" href="/assets/css/neumorphism.css">
+    <link rel="stylesheet" href="/assets/css/bento.css">
+    <link rel="stylesheet" href="/assets/css/components.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #1a1d20 !important;
+            background-image: url('/assets/img/login-bg.png?v=3') !important;
+            background-size: cover !important;
+            background-position: center !important;
+            background-repeat: no-repeat !important;
+            font-family: var(--font-family);
+        }
+        
+        .login-card {
+            width: 100%;
+            max-width: 420px;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            border-radius: 24px;
+            background-color: color-mix(in srgb, var(--surface-bg) 75%, transparent);
+            backdrop-filter: blur(12px) brightness(0.9);
+            -webkit-backdrop-filter: blur(12px) brightness(0.9);
+            box-shadow: var(--neu-raised);
+        }
+        
+        [data-theme="dark"] .login-card {
+            background-color: color-mix(in srgb, var(--surface-bg) 65%, transparent);
+            backdrop-filter: blur(12px) brightness(0.6);
+            -webkit-backdrop-filter: blur(12px) brightness(0.6);
+        }
+        
+        .login-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .login-card h1 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .form-group label {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-left: 4px;
+        }
+        
+        .neu-input-fixed {
+            padding: 14px 16px;
+            border-radius: var(--radius-control, 12px);
+            border: none;
+            background-color: var(--surface-bg);
+            box-shadow: var(--neu-pressed);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 1rem;
+            outline: none;
+            transition: box-shadow 0.2s ease;
+        }
+        
+        .neu-input-fixed:focus {
+            box-shadow: var(--neu-pressed), 0 0 0 2px var(--color-primary);
+        }
+        
+        .btn-primary-fixed {
+            margin-top: 16px;
+            padding: 14px;
+            border-radius: var(--radius-control, 12px);
+            border: none;
+            background-color: #D4A359;
+            color: #1a1d20;
+            box-shadow: var(--neu-raised);
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .btn-primary-fixed:hover {
+            filter: brightness(1.1);
+        }
+        
+        .btn-primary-fixed:active {
+            box-shadow: var(--neu-pressed);
+        }
+        
+        [data-theme="light"] .btn-primary-fixed {
+            background-color: var(--color-primary);
+            color: white;
+        }
+    </style>
+</head>
+<body class="neu-app">
+    <div class="login-card">
+        <div class="login-header">
+            <h1>Login</h1>
+        </div>
+        <form id="login-form" style="display: flex; flex-direction: column; gap: 16px;">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="username" class="neu-input-fixed" required autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="password" class="neu-input-fixed" required autocomplete="current-password">
+            </div>
+            <button type="submit" class="btn-primary-fixed" id="login-btn">
+                <span class="btn-text">Log in</span>
+                <span class="btn-loader" style="display:none; margin-left: 8px;">Loading...</span>
+            </button>
+        </form>
+        <div id="error" style="color: var(--color-error); text-align: center; min-height: 20px; font-size: 0.9rem; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px;"></div>
+        <div style="text-align: center; margin-top: 8px;">
+            <a href="/analyze.html" class="neu-button neu-flat" style="width: 100%; display: block; padding: 12px; box-sizing: border-box;">Continue to Public Analysis</a>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initTheme } from '/assets/js/lib/theme.js';
+        initTheme();
+    </script>
+    
+    <script src="/assets/js/main.js"></script>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('login-btn');
+            const btnText = btn.querySelector('.btn-text');
+            const btnLoader = btn.querySelector('.btn-loader');
+            
+            btn.disabled = true;
+            btnText.style.display = 'none';
+            btnLoader.style.display = 'inline-block';
+            document.getElementById('error').innerHTML = '';
+            
+            const u = document.getElementById('username').value;
+            const p = document.getElementById('password').value;
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({username: u, password: p})
+                });
+                if (res.ok) {
+                    window.location.href = '/dashboard.html';
+                } else {
+                    const data = await res.json();
+                    document.getElementById('error').innerText = data.detail || 'Login failed';
+                    btn.disabled = false;
+                    btnText.style.display = 'inline-block';
+                    btnLoader.style.display = 'none';
+                }
+            } catch (err) {
+                document.getElementById('error').innerText = 'Connection error';
+                btn.disabled = false;
+                btnText.style.display = 'inline-block';
+                btnLoader.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

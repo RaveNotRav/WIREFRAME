@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WIREFRAME</title>
+    <link rel="stylesheet" href="/assets/css/tokens.css">
+    <link rel="stylesheet" href="/assets/css/neumorphism.css">
+    <link rel="stylesheet" href="/assets/css/bento.css">
+    <link rel="stylesheet" href="/assets/css/components.css">
+    <link rel="stylesheet" href="/assets/css/global-header.css">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden; /* Prevent scrolling for a true full-bleed hero */
+        }
+
+        .hero-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('/assets/img/hero-towers.png');
+            background-size: cover;
+            background-position: center;
+            z-index: -2;
+        }
+
+        .hero-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--hero-overlay-gradient);
+            z-index: -1;
+            transition: background 0.3s ease;
+        }
+
+        /* Transparent header sitting on top of the hero image */
+        .neu-header {
+            background: transparent !important;
+            box-shadow: none !important;
+            border-bottom: none !important;
+            margin-bottom: 0 !important;
+            position: relative;
+            z-index: 10;
+        }
+
+        .neu-header-title {
+            color: var(--hero-text-color) !important;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: calc(100% - 80px); /* Minus exact 80px header */
+            max-width: 800px;
+            padding: 0 60px;
+            color: var(--hero-text-color);
+        }
+
+        @keyframes fadeUpIn {
+            0% {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .animate-fade-up {
+            animation: fadeUpIn 0.8s ease-out both;
+        }
+
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.3s; }
+        .delay-3 { animation-delay: 0.5s; }
+
+        .hero-title {
+            font-size: 4rem;
+            margin: 0 0 16px 0;
+            font-weight: 800;
+            letter-spacing: -1px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .hero-tagline {
+            font-size: 1.5rem;
+            line-height: 1.6;
+            margin: 0 0 40px 0;
+            opacity: 0.9;
+        }
+
+        .neu-button-lg {
+            padding: 16px 48px;
+            font-size: 1.25rem;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+            /* Unified button style */
+            background-color: #1f2c38 !important;
+            color: #c9a24b !important;
+            border-radius: var(--radius-pill);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            transition: transform 0.2s, box-shadow 0.2s, outline 0.2s;
+            border: none;
+        }
+
+        .neu-button-lg:focus-visible {
+            outline: 2px solid #c9a24b !important;
+            outline-offset: 2px;
+        }
+
+        .neu-button-lg:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 20px rgba(0,0,0,0.3);
+        }
+        .neu-button-lg:active {
+            transform: translateY(1px) !important;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.4) !important;
+        }
+        
+        @media (max-width: 768px) {
+            .hero-content {
+                padding: 0 24px;
+            }
+            .hero-title {
+                font-size: 3rem;
+            }
+            .hero-tagline {
+                font-size: 1.2rem;
+            }
+        }
+    
+
+
+    </style>
+</head>
+<body class="neu-app">
+    <!-- Background Image and Theme Overlay -->
+    <div class="hero-background"></div>
+    <div class="hero-overlay"></div>
+
+    <header class="neu-header">
+        <a href="/" class="neu-header-logo" style="display: flex; align-items: center; gap: 12px;"><img src="/assets/img/logo-icon.png" alt="Logo Icon" style="height: 48px; object-fit: contain;"><img src="/assets/img/logo-text.png" alt="WIREFRAME" style="height: 30px; object-fit: contain;"></a>
+        <div class="neu-header-nav" style="gap: 16px;">
+            <button class="neu-theme-toggle neu-button neu-icon-button" id="theme-toggle" aria-label="Toggle theme" style="border-radius: 50%;">
+                <svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'>
+                    <path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path>
+                </svg>
+            </button>
+            <a href="/login.html" class="neu-button neu-raised-sm" style="text-decoration: none; font-weight: bold; padding: 8px 16px; border-radius: var(--radius-pill);">Login</a>
+        </div>
+    </header>
+
+    <div class="hero-content">
+        <h1 class="hero-title animate-fade-up delay-1">Diagnose Utility Hazards</h1>
+        <p class="hero-tagline animate-fade-up delay-2">
+            A computer vision system that diagnoses overhead utility wire hazards using vegetation interference analysis via 2D FFT, catenary sag modeling, and ground clearance estimation against Philippine Electrical Code (PEC) minimums.
+        </p>
+        <div class="animate-fade-up delay-3">
+            <a href="/analyze.html" class="neu-button-lg">Analyze</a>
+        </div>
+    </div>
+
+    <!-- Theme Toggler Support -->
+    <script type="module">
+        import { initTheme, toggleTheme } from '/assets/js/lib/theme.js';
+        
+        initTheme();
+        const themeBtn = document.getElementById('theme-toggle');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', toggleTheme);
+        }
+    </script>
+</body>
+</html>

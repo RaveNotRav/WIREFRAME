@@ -1,0 +1,91 @@
+/* global-header.css - Shared header for new Phase 6 pages */
+
+
+/* Static header button colors (Unified across themes) */
+:root {
+    --header-btn-bg: #1f2c38; /* Dark navy */
+    --header-btn-text: #c9a24b; /* Gold text */
+}
+
+
+.neu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    margin-bottom: 0;
+    border-bottom: none;
+    
+    position: sticky;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    box-sizing: border-box;
+    z-index: 1000;
+    background: color-mix(in srgb, var(--surface-bg) 85%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.neu-header-logo {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.neu-header-nav {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.neu-header-nav a,
+.neu-header-nav button:not(.neu-theme-toggle) {
+    background-color: var(--header-btn-bg) !important;
+    color: var(--header-btn-text) !important;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+
+.neu-header-nav a:hover {
+    filter: brightness(1.1);
+}
+
+.neu-header-userinfo, .neu-header-userinfo span {
+    font-size: 0.9rem;
+    color: #c9a24b !important;
+}
+
+.neu-header-role {
+    font-weight: 600;
+    color: #c9a24b !important;
+    text-transform: capitalize;
+}
+
+.neu-theme-toggle {
+    background-color: var(--header-btn-bg) !important;
+    border: none;
+    cursor: pointer;
+    color: var(--header-btn-text) !important;
+    font-size: 1.2rem;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.neu-theme-toggle:hover {
+    color: var(--text-primary);
+    background: rgba(128,128,128,0.1);
+}
+
+.neu-header-nav a:focus-visible,
+.neu-theme-toggle:focus-visible {
+    outline: 2px solid #c9a24b !important;
+    outline-offset: 2px;
+}

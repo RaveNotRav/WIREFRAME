@@ -1,0 +1,20 @@
+# Maps raw Roboflow export class names to canonical classes.
+# Map to 'DROP' to ignore the class.
+# Canonical classes for Sprint 1: power_line, telecom_cable, fiber_optic, dead_abandoned, pole
+
+Cable: telecom_cable
+Wire: power_line
+wire: power_line
+cable: telecom_cable
+conductor: power_line
+utility-pole: pole
+power_pole: pole
+transmission_line: power_line
+dead_wire: dead_abandoned
+abandoned: dead_abandoned
+telecom: telecom_cable
+fiber: fiber_optic
+fiber-optic: fiber_optic
+street_light: DROP
+transformer: DROP
+tree: DROP

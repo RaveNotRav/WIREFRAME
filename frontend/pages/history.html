@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>History - WIREFRAME</title>
+    <!-- Scoped CSS -->
+    <link rel="stylesheet" href="/assets/css/tokens.css?v=2">
+    <link rel="stylesheet" href="/assets/css/neumorphism.css">
+    <link rel="stylesheet" href="/assets/css/bento.css">
+    <link rel="stylesheet" href="/assets/css/components.css?v=3">
+    <link rel="stylesheet" href="/assets/css/global-header.css?v=3">
+    <style>
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        .gallery-item {
+            position: relative;
+            border-radius: var(--radius-control);
+            overflow: hidden;
+            background: var(--surface);
+            box-shadow: var(--shadow-raised);
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .gallery-item img {
+            width: 100%;
+            height: 150px;
+            object-fit: cover;
+            border-radius: var(--radius-control);
+        }
+        .gallery-item-info {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .gallery-item-title {
+            font-weight: 600;
+            font-size: 1rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .gallery-item-meta {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+        .mock-watermark {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 0, 0, 0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body class="neu-app">
+    
+    <header class="neu-header">
+        <a href="/" class="neu-header-logo" style="display: flex; align-items: center; gap: 12px;"><img src="/assets/img/logo-icon.png" alt="Logo Icon" style="height: 48px; object-fit: contain;"><img src="/assets/img/logo-text.png" alt="WIREFRAME" style="height: 30px; object-fit: contain;"></a>
+                <div class="neu-header-nav">
+            <a href="/dashboard.html" class="neu-button neu-flat" id="nav-dashboard">Dashboard</a>
+            <a href="/analyze.html" class="neu-button neu-flat" id="nav-analyze">Analyze</a>
+            <a href="/history.html" class="neu-button neu-flat" id="nav-history">History</a>
+            <span class="neu-header-userinfo"><span id="user-name">Loading...</span> (<span id="user-role" class="neu-header-role">...</span>)</span>
+            <button class="neu-theme-toggle" id="theme-toggle" aria-label="Toggle theme"><svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path></svg></button>
+            <button class="neu-button neu-raised-sm" id="btn-logout">Logout</button>
+        </div>
+    </header>
+
+    <main class="bento-grid" style="padding-top: 80px;">
+        
+        <div class="bento-tile bento-xxl neu-raised">
+            <div class="bento-tile-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 10px;">
+                <h2 class="bento-tile-title" style="width: 100%;">Analysis History</h2>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px; width: 100%;">
+                    <button class="neu-button neu-pressed" id="tab-verified">Verified Inspector Records</button>
+                    <button class="neu-button neu-flat" id="tab-public">Public Tips (Unverified)</button>
+                </div>
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; width: 100%;">
+                    <input type="text" id="filter-company" class="neu-input" placeholder="Company" style="max-width: 150px;">
+                    <input type="text" id="filter-barangay" class="neu-input" placeholder="Barangay" style="max-width: 150px;">
+                    <input type="text" id="filter-street" class="neu-input" placeholder="Street" style="max-width: 150px;">
+                    <button class="neu-button neu-raised-sm" id="btn-filter">Filter</button>
+                    <div style="flex: 1;"></div>
+                    <label class="neu-form-label" style="display: flex; gap: 5px; align-items: center; margin: 0; cursor: pointer;">
+                        <input type="checkbox" id="select-all" style="width: auto;"> Select All
+                    </label>
+                    <label class="neu-form-label" style="display: flex; gap: 5px; align-items: center; margin: 0; cursor: pointer;">
+                        <input type="checkbox" id="toggle-mock" style="width: auto;" checked> Include Mock
+                    </label>
+                    <button class="neu-button neu-raised-sm" id="btn-generate-summary" disabled>Generate Summary PDF</button>
+                    <button class="neu-button neu-raised-sm" id="btn-export-geojson" disabled>Export GeoJSON</button>
+                    <button class="neu-button neu-raised-sm" id="btn-export-csv" disabled>Export CSV</button>
+                    <button class="neu-button neu-raised-sm" id="btn-refresh">Refresh</button>
+                    <button class="neu-button neu-flat" id="btn-purge-mock" style="color: var(--color-error); display: none;">Purge Mock</button>
+                </div>
+            </div>
+            <div class="bento-tile-body">
+                <div aria-live="polite" id="live-region" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;"></div>
+                <div id="loading" style="padding: 20px;"><div class="neu-skeleton" style="height:150px; margin-bottom:20px;"></div><div class="neu-skeleton" style="height:150px;"></div></div>
+                <div class="gallery-grid" id="gallery-grid" style="display: none;">
+                    <!-- Populated via JS -->
+                </div>
+                <div id="pagination" style="display: flex; justify-content: center; gap: 10px; margin-top: 20px;">
+                    <button class="neu-button neu-raised-sm" id="btn-prev" disabled>Previous</button>
+                    <span id="page-info" style="align-self: center; font-size: 0.9rem;">Page 1</span>
+                    <button class="neu-button neu-raised-sm" id="btn-next" disabled>Next</button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script type="module">
+        import { fetchApi, showToast } from '/assets/js/main.js';
+        import { initTheme, toggleTheme } from '/assets/js/lib/theme.js';
+        import { loadHistoryData } from '/assets/js/loaders.js';
+
+        let currentPage = 1;
+        let totalPages = 1;
+        let user = null;
+        let loadedItems = [];
+
+        function announce(message) {
+            document.getElementById('live-region').textContent = message;
+        }
+
+        // Initialize theme
+        initTheme();
+        const themeBtn = document.getElementById('theme-toggle');
+        if (themeBtn) {
+            themeBtn.addEventListener('click', toggleTheme);
+        }
+
+        // Fetch User
+        try {
+            const res = await fetchApi('/api/auth/me');
+            user = await res.json();
+            document.getElementById('user-name').textContent = user.username;
+            document.getElementById('user-role').textContent = user.role;
+            if (user.role === 'admin') {
+                document.getElementById('btn-purge-mock').style.display = 'block';
+            }
+        } catch (e) {
+            // fetchApi handles redirect to /login.html on 401
+        }
+
+        document.getElementById('btn-logout').addEventListener('click', async () => {
+            try {
+                await fetchApi('/api/auth/logout', { method: 'POST' });
+            } catch (e) {}
+            window.location.href = '/login.html';
+        });
+
+        document.getElementById('btn-refresh').addEventListener('click', () => loadHistory(currentPage));
+            
+            document.getElementById('tab-verified').addEventListener('click', (e) => {
+                e.target.classList.replace('neu-flat', 'neu-pressed');
+                document.getElementById('tab-public').classList.replace('neu-pressed', 'neu-flat');
+                currentPage = 1;
+                loadHistory(currentPage);
+            });
+            document.getElementById('tab-public').addEventListener('click', (e) => {
+                e.target.classList.replace('neu-flat', 'neu-pressed');
+                document.getElementById('tab-verified').classList.replace('neu-pressed', 'neu-flat');
+                currentPage = 1;
+                loadHistory(currentPage);
+            });
+
+            document.getElementById('btn-filter').addEventListener('click', () => {
+                currentPage = 1;
+                loadHistory(currentPage);
+            });
+            document.getElementById('toggle-mock').addEventListener('change', () => {
+                currentPage = 1;
+                loadHistory(currentPage);
+            });
+            document.getElementById('select-all').addEventListener('change', (e) => {
+                const checked = e.target.checked;
+                document.querySelectorAll('.item-checkbox').forEach(cb => {
+                    cb.checked = checked;
+                });
+                updateSummaryButtonState();
+            });
+            document.getElementById('btn-prev').addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    loadHistory(currentPage);
+                }
+            });
+            document.getElementById('btn-next').addEventListener('click', () => {
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    loadHistory(currentPage);
+                }
+            });
+            
+            document.getElementById('btn-purge-mock').addEventListener('click', async () => {
+                if (!confirm("Are you sure you want to permanently delete all mock data?")) return;
+                
+                try {
+                    const res = await fetchApi('/api/admin/purge_mock', {
+                        method: 'DELETE'
+                    });
+                    const data = await res.json();
+                    showToast(data.message, 'success');
+                    currentPage = 1;
+                    loadHistory(currentPage);
+                } catch (e) {
+                    showToast(e.message, 'error');
+                }
+            });
+
+            document.getElementById('btn-generate-summary').addEventListener('click', async () => {
+                const selectedIds = Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => parseInt(cb.value));
+                if (selectedIds.length === 0) return;
+
+                announce('Generating summary PDF, please wait...');
+                try {
+                    const res = await fetchApi('/api/reports/summary', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            analysis_ids: selectedIds,
+                            include_mock: document.getElementById('toggle-mock').checked
+                        })
+                    });
+
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `wireframe_summary_${new Date().getTime()}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    announce('Summary PDF downloaded successfully.');
+                } catch (err) {
+                    showToast(err.message, 'error');
+                    announce('Error generating summary PDF.');
+                }
+            });
+
+            document.getElementById('btn-export-geojson').addEventListener('click', async () => {
+                const selectedIds = Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => parseInt(cb.value));
+                if (selectedIds.length === 0) return;
+
+                announce('Exporting GeoJSON, please wait...');
+                try {
+                    const res = await fetchApi('/api/reports/geojson', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            analysis_ids: selectedIds,
+                            include_mock: document.getElementById('toggle-mock').checked
+                        })
+                    });
+
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `export_${new Date().getTime()}.geojson`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    announce('GeoJSON exported successfully');
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+
+            document.getElementById('btn-export-csv').addEventListener('click', async () => {
+                const selectedIds = Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => parseInt(cb.value));
+                if (selectedIds.length === 0) return;
+
+                announce('Exporting CSV, please wait...');
+                try {
+                    const res = await fetchApi('/api/reports/csv', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            analysis_ids: selectedIds,
+                            include_mock: document.getElementById('toggle-mock').checked
+                        })
+                    });
+
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `export_${new Date().getTime()}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    announce('CSV exported successfully');
+                } catch (err) {
+                    showToast(err.message, 'error');
+                }
+            });
+
+            loadHistory(1);
+
+        function updateSummaryButtonState() {
+            const anyChecked = document.querySelectorAll('.item-checkbox:checked').length > 0;
+            document.getElementById('btn-generate-summary').disabled = !anyChecked;
+            document.getElementById('btn-export-geojson').disabled = !anyChecked;
+            document.getElementById('btn-export-csv').disabled = !anyChecked;
+        }
+
+        async function loadHistory(page) {
+            const grid = document.getElementById('gallery-grid');
+            const loading = document.getElementById('loading');
+            grid.style.display = 'none';
+            loading.style.display = 'block';
+
+            document.getElementById('select-all').checked = false;
+            updateSummaryButtonState();
+
+            try {
+                const isPublicTab = document.getElementById('tab-public').classList.contains('neu-pressed') ? 1 : 0;
+                const filters = {
+                    page,
+                    limit: 12,
+                    is_public: isPublicTab,
+                    is_mock: document.getElementById('toggle-mock').checked,
+                    company: document.getElementById('filter-company').value.trim(),
+                    barangay: document.getElementById('filter-barangay').value.trim(),
+                    street: document.getElementById('filter-street').value.trim()
+                };
+
+                const data = await loadHistoryData(filters);
+                loadedItems = data.items;
+                renderHistory(loadedItems);
+                
+                totalPages = Math.ceil(data.total / data.limit) || 1;
+                document.getElementById('page-info').textContent = `Page ${page} of ${totalPages}`;
+                document.getElementById('btn-prev').disabled = page <= 1;
+                document.getElementById('btn-next').disabled = page >= totalPages;
+            } catch (e) {
+                console.error(e);
+                grid.innerHTML = `<div style="color: var(--color-error)">${e.message}</div>`;
+            } finally {
+                loading.style.display = 'none';
+                grid.style.display = 'grid';
+            }
+        }
+
+        function renderHistory(items) {
+            const grid = document.getElementById('gallery-grid');
+            grid.innerHTML = '';
+            
+            if (items.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">No analysis history found.</div>';
+                return;
+            }
+
+            items.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'gallery-item';
+                
+                const d = new Date(item.created_at);
+                const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                
+                let thumbSrc = item.filename ? `/api/analysis/${item.id}/original` : ''; // Fallback
+                
+                let mockBadge = item.is_mock ? `<div class="mock-watermark">MOCK DATA</div>` : '';
+if (item.is_public) mockBadge += `<div class="mock-watermark" style="background: var(--color-warning); top: 50%; opacity: 1;">UNVERIFIED PUBLIC TIP</div>`;
+                
+                const isComplete = item.status === 'complete' || item.status === 'no_wires';
+                const pdfButton = isComplete 
+                    ? `<a href="/api/reports/${item.id}.pdf" target="_blank" class="neu-button neu-flat" style="flex: 1; text-align: center; text-decoration: none;" download>PDF</a>`
+                    : '';
+
+                el.innerHTML = `
+                    ${mockBadge}
+                    <div style="position: absolute; top: 10px; left: 10px; z-index: 10;">
+                        <input type="checkbox" class="item-checkbox" value="${item.id}" ${isComplete ? '' : 'disabled'}>
+                    </div>
+                    <img src="${thumbSrc}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiM0NDQiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZmlsbD0iI2FhYSIgZGltaW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gVGh1bWJuYWlsPC90ZXh0Pjwvc3ZnPg=='" alt="Thumbnail">
+                    <div class="gallery-item-info">
+                        <div class="gallery-item-title">${item.filename || 'Unknown'}</div>
+                        <div class="gallery-item-meta">
+                            <span>Status: ${item.status}</span>
+                            <span>ID: ${item.id}</span>
+                        </div>
+                        <div class="gallery-item-meta">
+                            <span>Company: ${item.company || '-'}</span>
+                        </div>
+                        <div class="gallery-item-meta">
+                            <span>Loc: ${item.barangay || '-'} / ${item.street || '-'}</span>
+                        </div>
+                        ${item.notes ? `<div class="gallery-item-meta" style="margin-top: 4px; font-style: italic; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.notes.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}">Notes: ${item.notes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>` : ''}
+                        <div class="gallery-item-meta">
+                            <span>${dateStr}</span>
+                        </div>
+                        <div style="display: flex; gap: 5px; margin-top: 10px;">
+                            <a href="/analyze.html?id=${item.id}" class="neu-button neu-raised-sm" style="flex: 1; text-align: center; text-decoration: none;">View</a>
+                            ${pdfButton}
+                        </div>
+                    </div>
+                `;
+                
+                grid.appendChild(el);
+            });
+            
+            document.querySelectorAll('.item-checkbox').forEach(cb => {
+                cb.addEventListener('change', updateSummaryButtonState);
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+    <!-- Group with boosted opacity CAD styling for poles (22%) -->
+    <g stroke="rgba(255, 255, 255, 0.22)" fill="none" stroke-width="1.5">
+        <!-- Left Pole (Wireframe) -->
+        <g transform="translate(150, 0)">
+            <rect x="-12" y="200" width="24" height="900" />
+            <!-- Crossarms -->
+            <rect x="-80" y="240" width="200" height="12" />
+            <rect x="-120" y="340" width="160" height="12" />
+            <rect x="-90" y="440" width="120" height="10" />
+            <rect x="-60" y="550" width="100" height="8" />
+            <!-- Insulators -->
+            <rect x="-70" y="210" width="8" height="30" />
+            <rect x="110" y="210" width="8" height="30" />
+            <rect x="-110" y="310" width="8" height="30" />
+            <rect x="30" y="310" width="8" height="30" />
+            <rect x="-80" y="410" width="6" height="30" />
+            <rect x="20" y="410" width="6" height="30" />
+            
+            <!-- Transformer Wireframe -->
+            <rect x="15" y="490" width="60" height="100" rx="4" />
+            <rect x="-75" y="490" width="60" height="100" rx="4" />
+            
+            <!-- Tangled Spaghetti Clusters (Extremely dense) -->
+            <g stroke="rgba(255, 255, 255, 0.25)" stroke-width="1">
+                <!-- Outer chaotic loops around transformers -->
+                <path d="M 0 480 C -40 450 -60 520 -20 550 C 20 580 40 530 0 500" />
+                <path d="M 20 450 Q 80 400 50 490 T 90 540 Q 20 590 0 550" />
+                <path d="M -70 490 C -140 470 -110 570 -50 560 C -10 550 -40 490 -60 480" />
+                <path d="M -20 510 C -50 450 30 400 60 490 C 90 530 -20 580 -30 520" />
+                <!-- Extra tangled service drops -->
+                <path d="M -50 590 C -80 660 -20 720 0 780" />
+                <path d="M 40 590 C 100 630 20 700 50 790" />
+                <path d="M -10 590 C -40 650 70 690 10 770" />
+                <path d="M 70 440 C 140 490 90 560 60 600" />
+                <path d="M -110 340 C -150 430 -80 490 -40 510" />
+                <!-- NEW density layers -->
+                <path d="M -40 440 C 10 400 60 470 30 520 C 0 570 -70 520 -50 470" />
+                <path d="M 60 420 Q -20 400 -10 490 T -80 500" />
+                <path d="M -80 420 Q -140 480 -100 560 T -20 620" />
+                <path d="M 30 600 C -20 660 80 720 -10 780" />
+                <path d="M 10 630 C 50 680 -50 710 20 760" />
+            </g>
+            
+            <!-- CAD Annotations -->
+            <text x="45" y="430" fill="rgba(255, 255, 255, 0.28)" stroke="none" font-family="monospace" font-size="12" letter-spacing="1">NODE_Inspect</text>
+            <circle cx="20" cy="480" r="4.5" fill="#D4A359" fill-opacity="0.9" stroke="none" />
+            <line x1="110" y1="210" x2="160" y2="210" stroke-dasharray="4 4" stroke-width="1" stroke="rgba(255, 255, 255, 0.28)" />
+            <text x="170" y="215" fill="rgba(255, 255, 255, 0.28)" stroke="none" font-family="monospace" font-size="12">Δy = 0.42m</text>
+        </g>
+
+        <!-- Right Pole (Wireframe) -->
+        <g transform="translate(1700, 0)">
+            <rect x="-16" y="150" width="32" height="950" />
+            <rect x="-140" y="270" width="200" height="14" />
+            <rect x="-100" y="410" width="200" height="12" />
+            <rect x="-120" y="520" width="140" height="10" />
+            <!-- Insulators -->
+            <rect x="-130" y="240" width="10" height="30" />
+            <rect x="50" y="240" width="10" height="30" />
+            <rect x="-90" y="380" width="10" height="30" />
+            <rect x="90" y="380" width="10" height="30" />
+            <!-- Transformer Wireframe -->
+            <rect x="-110" y="480" width="70" height="120" rx="4" />
+            
+            <!-- Tangled Spaghetti Clusters -->
+            <g stroke="rgba(255, 255, 255, 0.25)" stroke-width="1">
+                <path d="M -110 480 C -160 460 -140 560 -80 550 C -40 540 -70 470 -100 460" />
+                <path d="M -40 480 C 20 450 -20 530 -40 580 C -60 630 -110 590 -80 550" />
+                <path d="M -120 540 C -190 560 -150 610 -110 650" />
+                <path d="M -40 600 Q -90 630 -30 670 T -70 730" />
+                <path d="M -20 580 C 50 650 -20 690 -50 760" />
+                <path d="M -70 410 C -10 470 -60 530 -30 580" />
+                <path d="M -130 380 C -180 450 -120 500 -100 520" />
+                <!-- NEW density layers -->
+                <path d="M -30 460 C 40 500 -40 570 -10 630" />
+                <path d="M -90 440 C -150 490 -80 580 -120 620" />
+                <path d="M -60 630 C 10 690 -70 740 -20 790" />
+                <path d="M -110 620 Q -160 680 -90 730" />
+                <path d="M -10 520 C 60 570 -20 640 -50 690" />
+            </g>
+            
+            <!-- CAD Annotations -->
+            <text x="-170" y="230" fill="rgba(255, 255, 255, 0.28)" stroke="none" font-family="monospace" font-size="12">SAG_Data</text>
+            <circle cx="-130" cy="240" r="4.5" fill="#D4A359" fill-opacity="0.9" stroke="none" />
+            <line x1="-200" y1="277" x2="-140" y2="277" stroke-dasharray="4 4" stroke-width="1" stroke="rgba(255, 255, 255, 0.28)" />
+            <text x="-260" y="282" fill="rgba(255, 255, 255, 0.28)" stroke="none" font-family="monospace" font-size="12">+ 12.04m</text>
+        </g>
+    </g>
+
+    <!-- Sweeping Catenary Wires (18% opacity, distinct curved lines spanning left to right) -->
+    <g stroke="rgba(255, 255, 255, 0.18)" fill="none" stroke-width="1.2">
+        <!-- Top gap wires -->
+        <path d="M 80 210 Q 960 420 1570 240" />
+        <path d="M 260 210 Q 960 580 1750 240" />
+        <path d="M -40 310 Q 960 650 1610 380" />
+        
+        <!-- Bottom gap wires (Dropping lower to fill space cleanly) -->
+        <path d="M 180 310 Q 960 850 1790 380" />
+        <path d="M 170 540 Q 960 1020 1590 540" />
+        <path d="M 75 510 Q 960 950 1684 650" />
+        <path d="M 30 650 Q 960 1150 1600 700" />
+    </g>
+    
+    <!-- Central CV Node Highlights -->
+    <circle cx="1100" cy="625" r="4.5" fill="#D4A359" fill-opacity="0.9" stroke="none" />
+    <polyline points="1060,605 1050,605 1050,645 1060,645" stroke="rgba(255, 255, 255, 0.28)" fill="none" stroke-width="1.5" />
+    <polyline points="1140,605 1150,605 1150,645 1140,645" stroke="rgba(255, 255, 255, 0.28)" fill="none" stroke-width="1.5" />
+    <text x="1070" y="665" fill="rgba(255, 255, 255, 0.28)" stroke="none" font-family="monospace" font-size="13" font-weight="bold">anomaly_0.92</text>
+</svg>
