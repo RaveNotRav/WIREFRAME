@@ -470,6 +470,76 @@ def test_split_dataset_group_regex_dynamic_test_ratio(tmp_path):
     assert len(val_groups & test_groups) == 0
 
 
+def test_merge_datasets_normalized_canonical(tmp_path):
+    from backend.ml.merge_datasets import load_class_map, process_dataset
+    
+    # Empty custom map; canonical classes should map as identities automatically
+    empty_map_file = tmp_path / "empty_map.yaml"
+    empty_map_file.write_text("")
+    class_map = load_class_map(empty_map_file)
+    
+    ds = tmp_path / "norm_ds"
+    (ds / "images").mkdir(parents=True)
+    (ds / "labels").mkdir(parents=True)
+    # Source dataset with non-canonical case and formatting
+    (ds / "data.yaml").write_text("names: ['Pole', 'Power Line']\n")
+    (ds / "images" / "test.jpg").write_bytes(b"test_img")
+    (ds / "labels" / "test.txt").write_text(
+        "0 0.1 0.1 0.2 0.1 0.2 0.2 0.1 0.2\n"
+        "1 0.3 0.3 0.4 0.3 0.4 0.4 0.3 0.4\n"
+    )
+
+    out = tmp_path / "norm_out"
+    out.mkdir()
+    stats = process_dataset(
+        ds,
+        out,
+        class_map,
+        needs_polygon_file=out / "needs_poly.txt",
+    )
+
+    assert stats["written_images"] == 1
+    assert stats["unmapped_lines"] == 0
+    assert stats["kept_per_class"]["pole"] == 1
+    assert stats["kept_per_class"]["power_line"] == 1
+
+
+def test_merge_datasets_dry_run(tmp_path, caplog, monkeypatch):
+    import sys
+    from backend.ml.merge_datasets import main
+
+    ds = tmp_path / "dry_run_ds"
+    (ds / "images").mkdir(parents=True)
+    (ds / "labels").mkdir(parents=True)
+    (ds / "data.yaml").write_text("names: ['Pole', 'UnknownClass', 'tree']\n")
+    (ds / "images" / "sample.jpg").write_bytes(b"sample")
+    (ds / "labels" / "sample.txt").write_text(
+        "0 0.1 0.1 0.2 0.2\n"
+        "1 0.3 0.3 0.4 0.4\n"
+        "2 0.5 0.5 0.6 0.6\n"
+    )
+
+    out = tmp_path / "must_not_exist"
+    test_args = [
+        "merge_datasets.py",
+        "--src", str(ds),
+        "--dry-run"
+    ]
+    monkeypatch.setattr(sys, "argv", test_args)
+
+    with caplog.at_level("INFO"):
+        main()
+
+    # Assert output directory was never created
+    assert not out.exists()
+    # Check stdout/logs for class status
+    log_text = caplog.text
+    assert "Class 'Pole': mapped -> pole" in log_text
+    assert "Class 'UnknownClass': unmapped" in log_text
+    assert "Class 'tree': DROP" in log_text
+
+
+
 
 
 

@@ -13,12 +13,29 @@ logger = logging.getLogger(__name__)
 
 CANONICAL_CLASSES = ["power_line", "telecom_cable", "fiber_optic", "dead_abandoned", "pole"]
 
+def normalize_class_name(name: str) -> str:
+    """Normalize class name for lookup: strip, lowercase, replace spaces/hyphens with underscore."""
+    return name.strip().lower().replace(" ", "_").replace("-", "_")
+
 def load_class_map(map_path: Path) -> dict[str, str]:
-    if not map_path.exists():
-        logger.warning(f"Class map {map_path} not found. Using empty map.")
-        return {}
-    with open(map_path, 'r') as f:
-        return yaml.safe_load(f) or {}
+    mapping: dict[str, str] = {}
+    # Identity mapping for all canonical classes
+    for c in CANONICAL_CLASSES:
+        mapping[normalize_class_name(c)] = c
+
+    if map_path.exists():
+        with open(map_path, 'r') as f:
+            raw_map = yaml.safe_load(f) or {}
+        for k, v in raw_map.items():
+            norm_k = normalize_class_name(str(k))
+            if v == "DROP":
+                mapping[norm_k] = "DROP"
+            else:
+                mapping[norm_k] = str(v)
+    else:
+        logger.warning(f"Class map {map_path} not found. Using identity map for canonical classes.")
+
+    return mapping
 
 def parse_yolo_yaml(yaml_path: Path) -> dict[int, str]:
     with open(yaml_path, 'r') as f:
@@ -89,8 +106,9 @@ def _process_image_files(
                 
             cls_idx = int(parts[0])
             src_class_name = src_class_names.get(cls_idx, str(cls_idx))
+            norm_name = normalize_class_name(src_class_name)
             
-            canonical_name = class_map.get(src_class_name)
+            canonical_name = class_map.get(norm_name)
             if not canonical_name:
                 stats["unmapped_lines"] += 1
                 stats["unmapped_names"].add(src_class_name)
@@ -279,24 +297,90 @@ def process_dataset(
 
     return stats
 
+def dry_run_dataset(src_dir: Path, class_map: dict[str, str]) -> None:
+    """Read data.yaml and labels to print class name status and per-class line counts without writing anything."""
+    logger.info(f"\n--- DRY RUN: {src_dir.name} ---")
+    data_yaml = src_dir / "data.yaml"
+    src_class_names = parse_yolo_yaml(data_yaml) if data_yaml.exists() else {}
+    
+    # Check Roboflow splits
+    candidate_splits = []
+    for split_name in ["train", "valid", "test", "val"]:
+        s_dir = src_dir / split_name
+        if (s_dir / "labels").exists():
+            candidate_splits.append((split_name, s_dir))
+
+    all_class_names = dict(src_class_names)
+    label_files = []
+
+    if candidate_splits:
+        for split_name, s_dir in candidate_splits:
+            split_yaml = s_dir / "data.yaml"
+            if split_yaml.exists():
+                all_class_names.update(parse_yolo_yaml(split_yaml))
+            label_files.extend(list((s_dir / "labels").rglob("*.txt")))
+    else:
+        labels_dir = src_dir / "labels"
+        if labels_dir.exists():
+            label_files.extend(list(labels_dir.rglob("*.txt")))
+
+    # Count raw lines per source class
+    class_line_counts = defaultdict(int)
+    for lf in label_files:
+        with open(lf, "r") as f:
+            for line in f:
+                parts = line.strip().split()
+                if parts:
+                    cls_idx = int(parts[0])
+                    raw_name = all_class_names.get(cls_idx, str(cls_idx))
+                    class_line_counts[raw_name] += 1
+
+    # Report status for each class found
+    all_names_to_check = set(all_class_names.values()) | set(class_line_counts.keys())
+    if not all_names_to_check:
+        logger.info("  No classes found.")
+        return
+
+    for raw_name in sorted(all_names_to_check):
+        norm = normalize_class_name(raw_name)
+        target = class_map.get(norm)
+        if not target:
+            status = "unmapped"
+        elif target == "DROP":
+            status = "DROP"
+        else:
+            status = f"mapped -> {target}"
+        count = class_line_counts.get(raw_name, 0)
+        logger.info(f"  Class '{raw_name}': {status} (lines: {count})")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--src", nargs="+", required=True, help="Source dataset directories")
-    parser.add_argument("--out", required=True, help="Output dataset directory")
+    parser.add_argument("--out", default=None, help="Output dataset directory")
     parser.add_argument("--map", default="backend/ml/classes_map.yaml", help="Class mapping YAML")
     parser.add_argument("--box-policy", choices=["skip", "convert"], default="skip", help="How to handle bounding boxes: skip or convert to polygon")
     parser.add_argument("--keep-empty", action="store_true", help="Keep images with empty labels as background negatives")
     parser.add_argument("--allow-unmapped", action="store_true", help="Allow images containing unmapped classes to be written with unmapped lines omitted")
+    parser.add_argument("--dry-run", action="store_true", help="Inspect datasets without writing output")
     args = parser.parse_args()
 
-    out_dir = Path(args.out)
     map_path = Path(args.map)
+    class_map = load_class_map(map_path)
+
+    if args.dry_run:
+        for src in args.src:
+            dry_run_dataset(Path(src), class_map)
+        return
+
+    if not args.out:
+        parser.error("--out is required when not using --dry-run")
+
+    out_dir = Path(args.out)
     needs_poly = out_dir / "needs_polygon.txt"
     empty_labels = out_dir / "empty_labels.txt"
     unmapped_file = out_dir / "unmapped_images.txt"
     
     ensure_clean_output_dir(out_dir)
-    class_map = load_class_map(map_path)
     
     for src in args.src:
         logger.info(f"Processing dataset: {src}")
