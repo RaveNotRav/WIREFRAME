@@ -84,3 +84,58 @@ def test_skeleton_and_catenary():
     # The fitted parameter 'a' is highly unstable for shallow curves, so we don't assert its exact value.
     # Instead, we just ensure the fit residual is low.
     assert cat.residual < 10.0  # Very tight fit for synthetic data
+
+
+def test_segment_image_options_and_channel_order(monkeypatch):
+    import torch
+    from backend.config_store import set_setting
+    from backend.utils.cv.segment import segment_image
+
+    recorded_call = {}
+
+    class FakeBoxes:
+        def __init__(self):
+            self.xyxy = torch.tensor([[0.0, 0.0, 10.0, 10.0]])
+            self.cls = torch.tensor([0])
+            self.conf = torch.tensor([0.95])
+
+    class FakeMasks:
+        def __init__(self, shape):
+            self.data = torch.ones(shape, dtype=torch.float32)
+
+    class FakeResult:
+        def __init__(self, shape):
+            self.boxes = FakeBoxes()
+            self.masks = FakeMasks(shape)
+            self.names = {0: "power_line"}
+
+    def fake_model(bgr_input, **kwargs):
+        recorded_call["input_shape"] = bgr_input.shape
+        recorded_call["sample_pixel"] = bgr_input[0, 0].tolist()
+        recorded_call["kwargs"] = kwargs
+        # Return masks matching original image shape to test skipping resize
+        return [FakeResult((1, 100, 100))]
+
+    set_setting("inference_params", {
+        "conf": 0.35,
+        "iou": 0.65,
+        "imgsz": 800,
+        "retina_masks": True,
+    })
+
+    # Pure Red image in RGB format: (255, 0, 0)
+    rgb_img = np.zeros((100, 100, 3), dtype=np.uint8)
+    rgb_img[:, :] = (255, 0, 0)
+
+    # In segment_image, RGB is converted to BGR, so pixel becomes (0, 0, 255)
+    seg_res = segment_image(rgb_img, fake_model, original_shape=(100, 100))
+
+    assert seg_res.mask_available is True
+    assert recorded_call["sample_pixel"] == [0, 0, 255]  # Red in BGR is (0, 0, 255)
+    assert recorded_call["kwargs"]["conf"] == 0.35
+    assert recorded_call["kwargs"]["iou"] == 0.65
+    assert recorded_call["kwargs"]["imgsz"] == 800
+    assert recorded_call["kwargs"]["retina_masks"] is True
+    # Mask shape matches original_shape
+    assert seg_res.masks[0].shape == (100, 100)
+

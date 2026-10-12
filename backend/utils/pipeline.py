@@ -21,6 +21,7 @@ from backend.utils.cv.catenary import calculate_sag_metrics
 from backend.utils.cv.centerline import extract_centerline
 from backend.utils.cv.preprocess import validate_and_preprocess
 from backend.utils.cv.segment import segment_image
+from backend.utils.cv.types import normalize_class_name
 from backend.utils.cv.vni import compute_vni
 
 logger = logging.getLogger(__name__)
@@ -113,22 +114,28 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         dead_wires = 0
         severities = []
         pole_bbox = None
+        best_pole_conf = -1.0
         
         if seg_res.mask_available:
             for i, cls_idx in enumerate(seg_res.classes):
-                cls_name = seg_res.names.get(cls_idx, "unknown")
+                raw_cls_name = seg_res.names.get(cls_idx, "unknown")
+                cls_name = normalize_class_name(raw_cls_name)
+                conf = seg_res.confidences[i] if i < len(seg_res.confidences) else 0.0
+
                 if cls_name == "pole":
-                    pole_bbox = seg_res.boxes[i]
+                    if conf > best_pole_conf:
+                        best_pole_conf = conf
+                        pole_bbox = seg_res.boxes[i]
                 else:
                     wires.append({
                         "class_name": cls_name,
-                        "confidence": seg_res.confidences[i],
+                        "confidence": conf,
                         "mask": seg_res.masks[i],
                         "bbox": seg_res.boxes[i]
                     })
                     if cls_name == "dead_abandoned":
                         dead_wires += 1
-                    severities.append(get_severity(seg_res.confidences[i]))
+                    severities.append(get_severity(conf))
 
         if len(wires) == 0:
             transition_state(conn, analysis_id, PipelineState.NO_WIRES_DETECTED, "Zero wires found")
@@ -161,8 +168,10 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             
         transition_state(conn, analysis_id, PipelineState.COMPUTING_RISK, "Scoring CRS, scaling sag, assigning safety")
         from backend.formulas import compute_catenary_risk
-        weights = get_setting("class_weights", {})
-        pec_min_map = get_setting("pec_min_clearance_by_class", {})
+        raw_weights = get_setting("class_weights", {}) or {}
+        weights = {normalize_class_name(k): v for k, v in raw_weights.items()}
+        raw_pec = get_setting("pec_min_clearance_by_class", {}) or {}
+        pec_min_map = {normalize_class_name(k): v for k, v in raw_pec.items()}
         
         scale_res = calibrate_scale(pole_bbox=pole_bbox, image_height=prep.original_shape[0])
         
@@ -171,7 +180,8 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         for w in analyzed_wires:
             cat = w["catenary"]
             crs_raw = compute_catenary_risk(cat.sag_ratio, cat.residual)
-            cls_weight = weights.get(w["class_name"], 1.0)
+            cls_key = normalize_class_name(w["class_name"])
+            cls_weight = weights.get(cls_key, 1.0)
             crs_weighted = max(0.0, min(100.0, crs_raw * cls_weight))
             max_crs = max(max_crs, crs_weighted)
             
@@ -182,8 +192,9 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             params["clearance_low_m"] = clear_est["clearance_low_m"]
             params["clearance_high_m"] = clear_est["clearance_high_m"]
             
+            pec_min = pec_min_map.get(cls_key, pec_min_map.get("default", 5.5))
             clearance_status = compute_clearance_status(
-                clear_est["clearance_m"], clear_est["clearance_low_m"], clear_est["clearance_high_m"], pec_min_map.get(w["class_name"], pec_min_map.get("default", 5.5))
+                clear_est["clearance_m"], clear_est["clearance_low_m"], clear_est["clearance_high_m"], pec_min
             ) if clear_est["status"] != "unavailable" else "unavailable"
             
             est_str = f"Estimated clearance {clear_est['clearance_m']:.2f} m " \

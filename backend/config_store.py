@@ -45,6 +45,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "margin_of_error_pct": 20,
     "model_path": "backend/models/wireframe_seg.pt",
+    "inference_params": {
+        "conf": 0.25,
+        "iou": 0.7,
+        "imgsz": 1024,
+        "retina_masks": True,
+    },
     "severity_weights": {
         "high": 1.0,
         "medium": 0.5,

@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
+def normalize_class_name(name: str) -> str:
+    """Normalize class name: strip, lowercase, spaces/hyphens to underscore."""
+    return str(name).strip().lower().replace(" ", "_").replace("-", "_")
+
+
 @dataclass
 class PreprocessResult:
     """Output of the preprocessing stage."""

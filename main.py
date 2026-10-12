@@ -34,7 +34,7 @@ def _validate_config():
             raise FileNotFoundError(f"Model not found: {model_path}")
             
         # Validate settings
-        get_setting("pec_min_clearance_m")
+        get_setting("pec_min_clearance_by_class")
         get_setting("safety_mapping")
         # Check if risk bands are contiguous
         bands = get_setting("risk_bands")

@@ -288,3 +288,92 @@ def test_class_weights_scaling(monkeypatch):
     assert w_power["crs"] > 0
     # Telecom should be exactly half of Power because weight is 0.5 vs 1.0
     assert abs(w_telecom["crs"] - (w_power["crs"] * 0.5)) < 0.001
+
+
+def test_pipeline_class_name_normalization_and_pole_selection(monkeypatch):
+    import numpy as np
+    from backend.config_store import set_setting
+    from backend.database import get_connection
+    from backend.utils.pipeline import execute_pipeline
+    from backend.utils.cv.types import PreprocessResult, VNIResult, CenterlineResult, CatenaryMetrics, SegmentationResult
+
+    # Settings with non-canonical casing/formatting
+    set_setting("class_weights", {
+        "Power-Line": 1.5,
+        "telecom_cable": 1.0
+    })
+    set_setting("pec_min_clearance_by_class", {
+        "Power Line": 6.0,
+        "default": 5.5
+    })
+    set_setting("pole_heights", [10])
+
+    prep = PreprocessResult(
+        quality_ok=True,
+        reason="ok",
+        gray=np.zeros((1000, 1000), dtype=np.uint8),
+        rgb=np.zeros((1000, 1000, 3), dtype=np.uint8),
+        original_shape=(1000, 1000)
+    )
+    monkeypatch.setattr("backend.utils.pipeline.validate_and_preprocess", lambda path: prep)
+    monkeypatch.setattr("backend.utils.pipeline.compute_vni", lambda gray: VNIResult(vni=0.1, spectrum_png=None))
+
+    # Fake segmentation result with:
+    # 1. Lower confidence pole [0, 100, 20, 800] with conf 0.5
+    # 2. Higher confidence pole [0, 200, 20, 900] with conf 0.95 (height = 700)
+    # 3. Non-canonical class name "Power Line"
+    fake_seg = SegmentationResult(
+        mask_available=True,
+        boxes=[
+            [0, 100, 20, 800],
+            [0, 200, 20, 900],
+            [10, 300, 500, 400]
+        ],
+        classes=[0, 0, 1],
+        confidences=[0.5, 0.95, 0.85],
+        masks=[
+            np.zeros((1000, 1000), dtype=np.uint8),
+            np.zeros((1000, 1000), dtype=np.uint8),
+            np.zeros((1000, 1000), dtype=np.uint8),
+        ],
+        names={0: "Pole", 1: "Power Line"}
+    )
+    monkeypatch.setattr("backend.mock_detector.is_mock_mode", lambda: False)
+    monkeypatch.setattr("backend.utils.pipeline.segment_image", lambda rgb, model, shape: fake_seg)
+
+    cat = CatenaryMetrics(
+        sag_ratio=0.1,
+        residual=1.0,
+        span_px=500.0,
+        sag_px=50.0,
+        fitted_a=0.01,
+        fitted_points=[(10.0, 300.0), (500.0, 350.0)]
+    )
+    monkeypatch.setattr("backend.utils.pipeline.extract_centerline", lambda m, b: CenterlineResult(polyline=[(10, 300), (500, 350)], is_valid=True))
+    monkeypatch.setattr("backend.utils.pipeline.calculate_sag_metrics", lambda pts: cat)
+
+    conn = get_connection()
+    cur = conn.execute("INSERT INTO analyses (filename, status, company, street) VALUES ('test.jpg', 'queued', 'C', 'S')")
+    conn.commit()
+    a_id = cur.lastrowid
+
+    # Execute pipeline in real mode with fake model
+    execute_pipeline(a_id, "dummy_path.jpg", conn, model="fake_model")
+
+    # Verify wire stored has normalized class_name "power_line"
+    wire = conn.execute("SELECT class_name, crs, clearance_m, clearance_status FROM wires WHERE analysis_id = ?", (a_id,)).fetchone()
+    assert wire["class_name"] == "power_line"
+    # Verify weight was applied (CRS is scaled by 1.5)
+    from backend.formulas import compute_catenary_risk
+    expected_raw_crs = compute_catenary_risk(0.1, 1.0)
+    assert abs(wire["crs"] - min(100.0, expected_raw_crs * 1.5)) < 0.001
+    
+    # Verify higher confidence pole [0, 200, 20, 900] was selected:
+    # height = 900 - 200 = 700 px, scale = 10m / 700px = 0.0142857 m/px
+    # lowest_y = 350, ground_y = 900, clearance_px = 550 px
+    # clearance_m = 550 * (10 / 700) = 7.857 m
+    assert abs(wire["clearance_m"] - (550 * 10 / 700)) < 0.01
+    # Clearance >= 6.0m (PEC min for Power Line), so clearance_status is "ok"
+    assert wire["clearance_status"] == "ok"
+    conn.close()
+
