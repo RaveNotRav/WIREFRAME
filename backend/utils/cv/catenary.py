@@ -51,22 +51,44 @@ def calculate_sag_metrics(polyline: list[tuple[int, int]]) -> CatenaryMetrics:
         # Let's use the bounding box ratio
         sag_ratio = (np.max(y) - np.min(y)) / dx
 
-    # Initial guess for curve fit
-    # a: roughly dx^2 / (8 * sag) if parabolic
-    sag_approx = max(1.0, np.max(y) - (y[0]+y[-1])/2)
-    a_guess = max(1.0, (dx**2) / (8 * sag_approx))
-    x0_guess = (xmin + xmax) / 2
-    b_guess = np.min(y) - a_guess
-    
-    try:
-        popt, _ = curve_fit(cosh_func, x, y, p0=[a_guess, b_guess, x0_guess], maxfev=1000)
-        y_fit = cosh_func(x, *popt)
-        residual = float(np.sqrt(np.mean((y - y_fit)**2)))
-        fitted_points = list(zip(x.tolist(), y_fit.tolist()))
-        fitted_a = float(popt[0])
-    except Exception as e:
-        logger.warning(f"Catenary fit failed: {e}")
-        popt = None
+    chord_mid = (y[0] + y[-1]) / 2.0
+    sag_down = max(0.0, float(np.max(y) - chord_mid))
+    sag_up = max(0.0, float(chord_mid - np.min(y)))
+    x0_guess = (xmin + xmax) / 2.0
+
+    a_arch = max(1.0, (dx**2) / (8.0 * max(1.0, sag_up if sag_up > 0 else 1.0)))
+    b_arch = np.min(y) - a_arch
+
+    a_hang = -max(1.0, (dx**2) / (8.0 * max(1.0, sag_down if sag_down > 0 else 1.0)))
+    b_hang = np.max(y) - a_hang
+
+    candidates = [
+        [a_arch, b_arch, x0_guess],
+        [a_hang, b_hang, x0_guess],
+    ]
+
+    best_residual = float('inf')
+    best_popt = None
+    best_y_fit = None
+
+    for idx, p0 in enumerate(candidates):
+        try:
+            popt, _ = curve_fit(cosh_func, x, y, p0=p0, maxfev=1000)
+            y_fit = cosh_func(x, *popt)
+            res = float(np.sqrt(np.mean((y - y_fit)**2)))
+            if res < best_residual:
+                best_residual = res
+                best_popt = popt
+                best_y_fit = y_fit
+        except Exception as e:
+            logger.debug(f"Candidate {idx} fit failed: {e}")
+
+    if best_popt is not None:
+        residual = best_residual
+        fitted_points = list(zip(x.tolist(), best_y_fit.tolist()))
+        fitted_a = float(best_popt[0])
+    else:
+        logger.warning("Catenary fit failed")
         residual = float('inf')
         fitted_points = []
         fitted_a = 0.0

@@ -70,12 +70,18 @@ def trace_polyline(skel: np.ndarray, start_x: int, start_y: int) -> list[tuple[i
     return polyline
 
 
+MIN_MASK_COMPONENT_PIXELS = 15
+MIN_COMPONENT_PIXELS = MIN_MASK_COMPONENT_PIXELS
+
+
 def extract_centerline(mask: np.ndarray, bbox: list[float]) -> CenterlineResult:
     """Extract ordered polyline from a binary mask.
     
     Crops to bbox to save computation.
-    Applies Zhang-Suen thinning (cv2.ximgproc.thinning).
-    Traces from one endpoint to another.
+    Removes connected components of the cropped mask smaller than MIN_MASK_COMPONENT_PIXELS.
+    Takes median y per column if W >= H, else median x per row if H > W.
+    Returns points sorted along span, or invalid if < 2 points.
+    Note that end caps add ~half wire thickness.
     """
     x1, y1, x2, y2 = map(int, bbox)
     # Add small padding
@@ -85,48 +91,41 @@ def extract_centerline(mask: np.ndarray, bbox: list[float]) -> CenterlineResult:
     x2, y2 = min(w, x2 + pad), min(h, y2 + pad)
     
     crop = mask[y1:y2, x1:x2].copy()
+    crop_bin = (crop > 0).astype(np.uint8)
     
-    if np.sum(crop) == 0:
+    if np.sum(crop_bin) == 0:
         return CenterlineResult(is_valid=False)
         
-    # Zhang-Suen Thinning
-    try:
-        # cv2.ximgproc is available in opencv-contrib-python
-        # Since we use opencv-python-headless, we might not have it.
-        # Fallback to standard morphology if not available.
-        if hasattr(cv2, 'ximgproc'):
-            skel = cv2.ximgproc.thinning(crop, thinningType=cv2.ximgproc.THINNING_ZHANGSUEN)
-        else:
-            # Custom naive skeletonization
-            skel = np.zeros_like(crop)
-            img = crop.copy()
-            element = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
-            while True:
-                eroded = cv2.erode(img, element)
-                temp = cv2.dilate(eroded, element)
-                temp = cv2.subtract(img, temp)
-                skel = cv2.bitwise_or(skel, temp)
-                img = eroded.copy()
-                if cv2.countNonZero(img) == 0:
-                    break
-    except Exception as e:
-        logger.warning(f"Thinning failed: {e}")
+    # Remove connected components of the cropped mask smaller than MIN_MASK_COMPONENT_PIXELS
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(crop_bin, connectivity=8)
+    filtered = np.zeros_like(crop_bin)
+    for lbl in range(1, num_labels):
+        area = stats[lbl, cv2.CC_STAT_AREA]
+        if area >= MIN_MASK_COMPONENT_PIXELS:
+            filtered[labels == lbl] = 1
+
+    if cv2.countNonZero(filtered) == 0:
         return CenterlineResult(is_valid=False)
-        
-    endpoints = find_endpoints(skel)
-    
-    if not endpoints:
-        # Loop or isolated, just pick first non-zero
-        ys, xs = np.where(skel > 0)
-        if len(ys) == 0:
-            return CenterlineResult(is_valid=False)
-        start_pt = (xs[0], ys[0])
+
+    crop_h, crop_w = filtered.shape
+    polyline_global: list[tuple[float, float]] = []
+
+    # If W >= H: median y per column; else if H > W: median x per row
+    if crop_w >= crop_h:
+        for x_rel in range(crop_w):
+            ys = np.where(filtered[:, x_rel] > 0)[0]
+            if len(ys) > 0:
+                med_y = float(np.median(ys))
+                polyline_global.append((float(x_rel + x1), float(med_y + y1)))
     else:
-        start_pt = endpoints[0]
-        
-    polyline_local = trace_polyline(skel, start_pt[0], start_pt[1])
-    
-    # Map back to global coordinates
-    polyline_global = [(x + x1, y + y1) for x, y in polyline_local]
-    
+        for y_rel in range(crop_h):
+            xs = np.where(filtered[y_rel, :] > 0)[0]
+            if len(xs) > 0:
+                med_x = float(np.median(xs))
+                polyline_global.append((float(med_x + x1), float(y_rel + y1)))
+
+    if len(polyline_global) < 2:
+        return CenterlineResult(is_valid=False)
+
     return CenterlineResult(polyline=polyline_global, is_valid=True)
+
