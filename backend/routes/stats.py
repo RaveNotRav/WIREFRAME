@@ -45,11 +45,11 @@ async def get_dashboard_stats(
         
         # 2. Distribution (Wire Classes)
         dist_query = f"""
-            SELECT d.class_name, COUNT(d.id) as count
-            FROM detections d
-            JOIN analyses a ON d.analysis_id = a.id
+            SELECT w.class_name, COUNT(w.id) as count
+            FROM wires w
+            JOIN analyses a ON w.analysis_id = a.id
             WHERE a.status = 'complete' {mock_clause}
-            GROUP BY d.class_name
+            GROUP BY w.class_name
         """
         dist_rows = conn.execute(dist_query).fetchall()
         distribution = {

@@ -36,13 +36,7 @@ def test_stats_aggregation(client_admin: TestClient, _init_settings):
     )
     analysis_id = _init_settings.execute("SELECT last_insert_rowid()").fetchone()[0]
     
-    # Real detection (not needed for KPI, but good for distribution)
-    _init_settings.execute(
-        "INSERT INTO detections (analysis_id, class_name, confidence, bbox_x1, bbox_y1, bbox_x2, bbox_y2, severity, crs, sag_ratio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (analysis_id, "power_line", 0.9, 0, 0, 100, 100, "High", 2.0, 0.5)
-    )
-    
-    # Insert wire that drives it to Unsafe due to clearance
+    # Real wire (for distribution and driving to Unsafe due to clearance)
     _init_settings.execute(
         "INSERT INTO wires (analysis_id, class_name, crs, band, clearance_m, clearance_status, safety_level) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (analysis_id, "power_line", 10.0, "Low", 2.0, "below", "Unsafe")

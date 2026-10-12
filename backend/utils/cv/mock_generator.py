@@ -55,7 +55,7 @@ def generate_mock_segmentation(image_path: str, original_shape: tuple[int, int])
             classes=[],
             confidences=[],
             masks=[],
-            names={0: "telecom_wire", 1: "power_wire", 2: "dead_abandoned", 3: "pole"}
+            names={0: "telecom_cable", 1: "power_line", 2: "dead_abandoned", 3: "pole"}
         )
         
     # Generate mock pole
@@ -65,7 +65,7 @@ def generate_mock_segmentation(image_path: str, original_shape: tuple[int, int])
     confidences = []
     masks = []
     
-    names = {0: "telecom_wire", 1: "power_wire", 2: "dead_abandoned", 3: "pole"}
+    names = {0: "telecom_cable", 1: "power_line", 2: "dead_abandoned", 3: "pole"}
     
     if has_pole:
         # Pole bounding box on the right side
