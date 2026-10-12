@@ -26,6 +26,8 @@ from backend.utils.cv.vni import compute_vni
 
 logger = logging.getLogger(__name__)
 
+WIRE_CLASSES = {"power_line", "telecom_cable", "fiber_optic", "dead_abandoned"}
+
 class PipelineState(str, enum.Enum):
     INITIALIZING = "Initializing"
     IDLE = "Idle"
@@ -126,7 +128,7 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                     if conf > best_pole_conf:
                         best_pole_conf = conf
                         pole_bbox = seg_res.boxes[i]
-                else:
+                elif cls_name in WIRE_CLASSES:
                     wires.append({
                         "class_name": cls_name,
                         "confidence": conf,
@@ -136,6 +138,8 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                     if cls_name == "dead_abandoned":
                         dead_wires += 1
                     severities.append(get_severity(conf))
+                else:
+                    logger.debug("Skipping non-wire class: %s (confidence: %.2f)", cls_name, conf)
 
         if len(wires) == 0:
             transition_state(conn, analysis_id, PipelineState.NO_WIRES_DETECTED, "Zero wires found")
