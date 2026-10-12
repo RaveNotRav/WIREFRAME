@@ -13,23 +13,23 @@ from backend.config_store import get_setting
 logger = logging.getLogger(__name__)
 
 
-def compute_catenary_risk(sag_ratio: float, residual: float) -> float:
+def compute_catenary_risk(sag_to_span: float, residual: float) -> float:
     """Catenary Risk Score (CRS), 0-100.
 
     CRS = clip(sag_term + residual_penalty, 0, 100)
-      sag_term     = clip((sag_ratio - offset) / scale * 100, 0, 100)
+      sag_term     = clip((sag_to_span - offset) / scale * 100, 0, 100)
       residual_pen = clip((residual - r_offset) * r_gain, 0, penalty_cap)
 
     TODO(THESIS-3.5): Verify constants with adviser.
     """
     p = get_setting("crs_params")
     sag_term = max(0.0, min(100.0,
-        (sag_ratio - p["sag_offset"]) / p["sag_scale"] * 100))
+        (sag_to_span - p["sag_offset"]) / p["sag_scale"] * 100))
     residual_penalty = max(0.0, min(float(p["penalty_cap"]),
         (residual - p["residual_offset"]) * p["residual_gain"]))
     crs = max(0.0, min(100.0, sag_term + residual_penalty))
-    logger.debug("CRS: sag_ratio=%.4f term=%.2f residual=%.4f pen=%.2f -> %.2f",
-                 sag_ratio, sag_term, residual, residual_penalty, crs)
+    logger.debug("CRS: sag_to_span=%.4f term=%.2f residual=%.4f pen=%.2f -> %.2f",
+                 sag_to_span, sag_term, residual, residual_penalty, crs)
     return crs
 
 

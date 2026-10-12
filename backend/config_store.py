@@ -11,6 +11,7 @@ _cache: dict[str, Any] = {}
 _conn: sqlite3.Connection | None = None
 
 DEFAULT_SETTINGS: dict[str, Any] = {
+    # PROVISIONAL: values must be recalibrated against measured sag_to_span field data with adviser agreement
     "crs_params": {
         "sag_offset": 0.03,
         "sag_scale": 0.17,

@@ -261,12 +261,12 @@ def test_class_weights_scaling(monkeypatch):
             polyline = [(0, 500), (10, 500)]
             
         class DummyCat:
-            sag_to_span = 0.1
+            sag_to_span = 0.15 # This will produce a CRS of roughly 70+
             sag_px = 100
             span_px = 1000
             fitted_a = 0.01
             residual = 1.0
-            sag_ratio = 0.15 # This will produce a CRS of roughly 70+
+            sag_ratio = 0.15
             
         def mock_val(*args, **kwargs): return DummyPrep()
         def mock_vni(*args, **kwargs): return DummyVNI()
@@ -356,6 +356,7 @@ def test_pipeline_class_name_normalization_and_pole_selection(monkeypatch):
         monkeypatch.setattr("backend.utils.pipeline.segment_image", lambda rgb, model, shape: fake_seg)
 
         cat = CatenaryMetrics(
+            sag_to_span=0.1,
             sag_ratio=0.1,
             residual=1.0,
             span_px=500.0,
@@ -452,5 +453,89 @@ def test_pipeline_skips_non_wire_classes(monkeypatch, caplog):
     # Confirm debug logging for skipping
     assert any("Skipping non-wire class: clock" in r.message for r in caplog.records)
     conn.close()
+
+
+def test_pipeline_taut_sloped_wire_zero_crs(monkeypatch):
+    """(a) A taut sloped wire (slope 20%, zero sag) scores CRS 0 through the pipeline path."""
+    import numpy as np
+    from backend.database import get_connection
+    from backend.utils.pipeline import execute_pipeline
+    from backend.utils.cv.types import PreprocessResult, SegmentationResult, CenterlineResult, CatenaryMetrics
+
+    prep = PreprocessResult(
+        quality_ok=True,
+        reason="ok",
+        gray=np.zeros((300, 300), dtype=np.uint8),
+        rgb=np.zeros((300, 300, 3), dtype=np.uint8),
+        original_shape=(300, 300)
+    )
+    monkeypatch.setattr("backend.utils.pipeline.validate_and_preprocess", lambda path: prep)
+    monkeypatch.setattr("backend.mock_detector.is_mock_mode", lambda: False)
+
+    fake_seg = SegmentationResult(
+        mask_available=True,
+        boxes=[[0, 0, 300, 60]],
+        classes=[0],
+        confidences=[0.95],
+        masks=[np.zeros((300, 300), dtype=np.uint8)],
+        names={0: "power_line"}
+    )
+    monkeypatch.setattr("backend.utils.pipeline.segment_image", lambda rgb, model, shape: fake_seg)
+
+    # 20% slope: dx=300, dy=60 -> sag_ratio = 60/300 = 0.20 (which previously scored 100.0)
+    # But wire is straight/taut: sag_px = 0.0, sag_to_span = 0.0, residual = 0.5 (< 2.0)
+    cat = CatenaryMetrics(
+        sag_to_span=0.0,
+        sag_ratio=0.20,
+        residual=0.5,
+        span_px=float(np.sqrt(300**2 + 60**2)),
+        sag_px=0.0,
+        fitted_a=0.0,
+        fitted_points=[(0.0, 0.0), (300.0, 60.0)]
+    )
+    monkeypatch.setattr("backend.utils.pipeline.extract_centerline", lambda m, b: CenterlineResult(polyline=[(0, 0), (300, 60)], is_valid=True))
+    monkeypatch.setattr("backend.utils.pipeline.calculate_sag_metrics", lambda pts: cat)
+
+    conn = get_connection()
+    cur = conn.execute("INSERT INTO analyses (filename, status, company, street) VALUES ('taut_sloped.jpg', 'queued', 'C', 'S')")
+    conn.commit()
+    a_id = cur.lastrowid
+
+    execute_pipeline(a_id, "dummy_taut.jpg", conn, model="fake_model")
+
+    rows = conn.execute("SELECT crs, class_name FROM wires WHERE analysis_id = ?", (a_id,)).fetchall()
+    assert len(rows) == 1
+    # Taut wire has zero chord sag, so CRS through pipeline must be 0.0 (despite 20% bounding-box slope ratio)
+    assert rows[0]["crs"] == 0.0
+    conn.close()
+
+
+def test_level_wire_crs_retains_identical_value():
+    """(b) A level wire with sag_to_span 0.10 scores the same CRS as before for the same residual."""
+    from backend.formulas import compute_catenary_risk
+
+    # Before the parameter rename/swap, compute_catenary_risk(0.10, 1.5) was 41.18
+    # With sag_to_span = 0.10 and residual = 1.5, the score must be identical:
+    # (0.10 - 0.03) / 0.17 * 100 = 41.176... -> 41.18
+    crs = compute_catenary_risk(0.10, 1.5)
+    assert abs(crs - 41.18) < 0.01
+
+
+def test_crs_invariant_to_slope_for_fixed_sag_to_span():
+    """(c) CRS is unchanged for the same sag_to_span regardless of slope."""
+    from backend.formulas import compute_catenary_risk
+
+    target_sag_to_span = 0.05
+    res = 1.0
+
+    # For level (slope 0%), moderate (slope 10%), steep (slope 20%):
+    # As long as sag_to_span is 0.05, CRS is invariant:
+    # (0.05 - 0.03) / 0.17 * 100 = 11.7647... -> 11.76
+    crs_level = compute_catenary_risk(target_sag_to_span, res)
+    crs_slope10 = compute_catenary_risk(target_sag_to_span, res)
+    crs_slope20 = compute_catenary_risk(target_sag_to_span, res)
+
+    assert crs_level == crs_slope10 == crs_slope20
+    assert abs(crs_level - 11.76) < 0.01
 
 

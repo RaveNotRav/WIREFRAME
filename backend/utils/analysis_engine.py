@@ -59,13 +59,13 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
                 # 5. Catenary
                 cat = calculate_sag_metrics(cline.polyline)
                 
-                # In Phase 0, CRS was calculated using legacy sag_ratio & residual
+                # CRS calculated using true sag_to_span (chord sag / span) & residual
                 from backend.formulas import (
                     compute_catenary_risk,
                     compute_crs_band,
                     compute_safety_level,
                 )
-                crs_raw = compute_catenary_risk(cat.sag_ratio, cat.residual)
+                crs_raw = compute_catenary_risk(cat.sag_to_span, cat.residual)
                 
                 # Apply class weights
                 from backend.config_store import get_setting

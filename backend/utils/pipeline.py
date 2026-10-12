@@ -183,7 +183,7 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         final_wires = []
         for w in analyzed_wires:
             cat = w["catenary"]
-            crs_raw = compute_catenary_risk(cat.sag_ratio, cat.residual)
+            crs_raw = compute_catenary_risk(cat.sag_to_span, cat.residual)
             cls_key = normalize_class_name(w["class_name"])
             cls_weight = weights.get(cls_key, 1.0)
             crs_weighted = max(0.0, min(100.0, crs_raw * cls_weight))
