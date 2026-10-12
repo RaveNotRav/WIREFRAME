@@ -44,7 +44,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "default": 5.5
     },
     "margin_of_error_pct": 20,
-    "model_path": "models/wireframe.pt",
+    "model_path": "backend/models/wireframe_seg.pt",
     "severity_weights": {
         "high": 1.0,
         "medium": 0.5,

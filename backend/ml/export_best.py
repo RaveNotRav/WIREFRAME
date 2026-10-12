@@ -36,7 +36,7 @@ def update_db_config(db_path: Path, model_path: str):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--best", required=True, help="Path to best.pt from training run")
-    parser.add_argument("--db", default="wireframe.db", help="Path to SQLite DB")
+    parser.add_argument("--db", required=True, help="Path to SQLite DB")
     args = parser.parse_args()
     
     src = Path(args.best)

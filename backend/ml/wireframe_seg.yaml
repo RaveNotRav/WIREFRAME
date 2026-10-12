@@ -1,7 +1,7 @@
 # YOLO11-Seg Dataset configuration
 path: datasets/wireframe_seg  # dataset root dir
 train: images/train
-val: images/test
+val: images/val
 test: images/test
 
 # Classes dictionary
