@@ -4,7 +4,7 @@ import { fetchApi, showToast } from './main.js';
 import { initTheme, toggleTheme } from './lib/theme.js';
 import { getNaturalCoordinates } from './lib/coordinates.js';
 import { escapeHtml, formatConfidence, getWireClassColor } from './lib/formatters.js';
-import { statusPresentation, safetyPresentation } from './lib/presentation.js';
+import { statusPresentation, safetyPresentation, shouldShowPublicConfirmation, isTerminalStatus } from './lib/presentation.js';
 
 let currentUser = null;
 let currentFiles = [];
@@ -240,15 +240,22 @@ function renderThumbnails() {
         img.style.borderRadius = '8px';
         
         const remove = document.createElement('button');
-        remove.textContent = '×';
+        remove.setAttribute('aria-label', 'Remove image');
         remove.style.position = 'absolute';
-        remove.style.top = '-5px';
-        remove.style.right = '-5px';
-        remove.style.background = 'var(--color-error)';
-        remove.style.color = 'white';
+        remove.style.top = '-12px';
+        remove.style.right = '-12px';
+        remove.style.width = '44px';
+        remove.style.height = '44px';
+        remove.style.minWidth = '44px';
+        remove.style.minHeight = '44px';
+        remove.style.background = 'transparent';
         remove.style.border = 'none';
-        remove.style.borderRadius = '50%';
+        remove.style.display = 'flex';
+        remove.style.alignItems = 'center';
+        remove.style.justifyContent = 'center';
+        remove.style.padding = '0';
         remove.style.cursor = 'pointer';
+        remove.innerHTML = '<span style="width:22px;height:22px;border-radius:50%;background:var(--color-error);color:white;display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;box-shadow:var(--neu-raised-sm);">×</span>';
         
         remove.onclick = (e) => {
             e.stopPropagation();
@@ -317,6 +324,8 @@ async function startAnalysis() {
     
     stopAllPolling();
     resetResultTiles();
+    const reasonEl = document.getElementById('status-reason');
+    if (reasonEl) reasonEl.textContent = '';
     
     document.getElementById('tile-batch').style.display = 'block';
     
@@ -336,7 +345,7 @@ async function startAnalysis() {
                 body: formData
             });
             const data = await res.json();
-            
+            history.replaceState(null, '', `?id=${data.analysis_id}`);
             batchItems = [{ id: data.analysis_id, status: 'queued', thumb: fileThumbURLs[0], name: currentFiles[0].name }];
             renderBatchTabs();
             switchTab(0);
@@ -362,6 +371,9 @@ async function startAnalysis() {
             const batchData = await batchRes.json();
             
             currentBatchId = data.batch_id; // Added for cancel
+            if (batchData.analyses && batchData.analyses.length > 0) {
+                history.replaceState(null, '', `?id=${batchData.analyses[0].id}`);
+            }
             
             batchItems = batchData.analyses.map((a, i) => ({
                 id: a.id,
@@ -434,6 +446,8 @@ async function switchTab(index) {
     resetResultTiles();
     document.getElementById('tile-progress').style.display = 'block';
     document.getElementById('stepper').innerHTML = '';
+    const reasonEl = document.getElementById('status-reason');
+    if (reasonEl) reasonEl.textContent = '';
     
     // Fetch latest instantly
     try {
@@ -559,12 +573,18 @@ async function pollItem(analysisId, errorCount) {
             }
         }
         
-        const terminalStatuses = ['complete', 'rejected', 'no_wires', 'error', 'interrupted'];
-        if (terminalStatuses.includes(analysis.status)) {
+        if (isTerminalStatus(analysis.status)) {
             delete pollingTimers[analysisId];
             if (batchItems[currentActiveItemIndex]?.id === analysisId) {
+                try {
+                    const finalEventsRes = await fetchApi(`/api/analysis/${analysisId}/events`);
+                    const finalEvents = await finalEventsRes.json();
+                    renderEvents(finalEvents);
+                } catch (e) {
+                    console.warn('Failed to fetch final events:', e);
+                }
                 populateResultTiles(analysis);
-                if (!currentUser && ['complete', 'no_wires'].includes(analysis.status)) {
+                if (shouldShowPublicConfirmation(analysis, currentUser)) {
                     setTimeout(() => {
                         const modal = document.getElementById('public-confirmation-modal');
                         if (modal) modal.classList.add('open');
@@ -617,7 +637,7 @@ function updateStatusBadge(text, risk, reason) {
     badge.setAttribute('data-risk', risk);
     
     const reasonEl = document.getElementById('status-reason');
-    if (reason) reasonEl.textContent = reason;
+    if (reasonEl) reasonEl.textContent = reason || '';
 }
 
 function updateCancelButton(status) {
@@ -633,6 +653,8 @@ function updateCancelButton(status) {
 
 // ---- RENDERING RESULTS ----
 function resetResultTiles() {
+    const reasonEl = document.getElementById('status-reason');
+    if (reasonEl) reasonEl.textContent = '';
     ['tile-image', 'tile-safety', 'tile-action', 'tile-crs', 'tile-sag', 'tile-vni', 'tile-wires', 'tile-disclosure'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
@@ -658,16 +680,18 @@ function populateResultTiles(analysis) {
         
         document.getElementById('tile-action').style.display = 'block';
         document.getElementById('action-text').textContent = actionMapping['no_wires'] || 'No action needed.';
-        return;
     }
 
-    // Fully complete
+    // Results
     document.getElementById('tile-safety').style.display = 'block';
     document.getElementById('tile-action').style.display = 'block';
-    document.getElementById('tile-crs').style.display = 'block';
-    document.getElementById('tile-sag').style.display = 'block';
     document.getElementById('tile-vni').style.display = 'block';
-    document.getElementById('tile-wires').style.display = 'block';
+
+    if (analysis.status !== 'no_wires') {
+        document.getElementById('tile-crs').style.display = 'block';
+        document.getElementById('tile-sag').style.display = 'block';
+        document.getElementById('tile-wires').style.display = 'block';
+    }
 
     updateTilesFromJson(analysis);
 }
@@ -707,9 +731,9 @@ function updateTilesFromJson(analysis) {
 
     // Action
     let actionText = actionMapping[pres.risk] || 'No action defined.';
-    
-    // Override generic action text if clearance drove the risk higher than the CRS band
-    if (pres.risk === 'critical' && analysis.ground_clearance_status === 'below' && analysis.crs_band !== 'Critical') {
+    if (analysis.status === 'no_wires') {
+        actionText = actionMapping['no_wires'] || 'No action needed.';
+    } else if (pres.risk === 'critical' && analysis.ground_clearance_status === 'below' && analysis.crs_band !== 'Critical') {
         actionText = 'Immediate dispatch required. Ground clearance below PEC minimum.';
     } else if (pres.risk === 'high' && analysis.ground_clearance_status === 'near' && analysis.crs_band !== 'High' && analysis.crs_band !== 'Critical') {
         actionText = 'Schedule maintenance soon. Ground clearance nearing PEC minimum.';

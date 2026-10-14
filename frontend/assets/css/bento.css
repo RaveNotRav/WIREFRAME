@@ -89,4 +89,7 @@
     .bento-s, .bento-m, .bento-l, .bento-xl, .bento-xxl {
         grid-column: span 1;
     }
+    .bento-tile {
+        padding: 16px;
+    }
 }

@@ -1,6 +1,6 @@
 import { test, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { statusPresentation, safetyPresentation } from './presentation.js';
+import { statusPresentation, safetyPresentation, formatRejectionReason, shouldShowPublicConfirmation, isTerminalStatus, TERMINAL_STATUSES } from './presentation.js';
 
 describe('Unified presentation.js tests', () => {
     describe('statusPresentation', () => {
@@ -16,10 +16,47 @@ describe('Unified presentation.js tests', () => {
             assert.equal(statusPresentation(null).text, 'Unknown');
         });
 
-        it('handles analysis object input', () => {
+        it('handles analysis object input and formats rejection reasons', () => {
             assert.equal(statusPresentation({ status: 'complete' }).text, 'Complete');
-            assert.equal(statusPresentation({ status: 'rejected', summary: 'Blurry' }).text, 'Rejected');
-            assert.equal(statusPresentation({ status: 'rejected', summary: 'Blurry' }).reason, 'Blurry');
+            assert.equal(statusPresentation({ status: 'rejected', summary: 'resolution_too_low' }).text, 'Rejected');
+            assert.equal(
+                statusPresentation({ status: 'rejected', summary: 'resolution_too_low' }).reason,
+                'The photo is too small. Use the original photo from your camera, not one sent through Telegram or Messenger.'
+            );
+        });
+    });
+
+    describe('formatRejectionReason', () => {
+        it('formats known rejection codes into friendly English', () => {
+            assert.equal(
+                formatRejectionReason('resolution_too_low'),
+                'The photo is too small. Use the original photo from your camera, not one sent through Telegram or Messenger.'
+            );
+            assert.equal(
+                formatRejectionReason('too_dark'),
+                'The photo is too dark. Retake it in better lighting or daytime.'
+            );
+            assert.equal(
+                formatRejectionReason('too_blurry'),
+                'The photo is too blurry. Hold the camera steady and tap to focus on the wires.'
+            );
+            assert.equal(
+                formatRejectionReason('corrupt_file'),
+                'The file is corrupt or unreadable. Please choose a valid JPG or PNG image.'
+            );
+        });
+
+        it('falls back to generic message for unknown rejection codes', () => {
+            assert.equal(
+                formatRejectionReason('some_unknown_error'),
+                'The photo could not be analyzed. Please retake it.'
+            );
+        });
+
+        it('returns empty string for falsy input', () => {
+            assert.equal(formatRejectionReason(null), '');
+            assert.equal(formatRejectionReason(undefined), '');
+            assert.equal(formatRejectionReason(''), '');
         });
     });
 
@@ -97,6 +134,60 @@ describe('Unified presentation.js tests', () => {
             assert.equal(res.text, 'Critical');
             assert.ok(res.reasons.includes('No wires were detected in this photo. Retake it with the overhead wires clearly in view.'));
             assert.ok(res.reasons.includes('CRS band is Critical'));
+        });
+    });
+
+    describe('shouldShowPublicConfirmation', () => {
+        it('opens ONLY for status complete with at least one wire for a guest', () => {
+            assert.equal(shouldShowPublicConfirmation({ status: 'complete', wires: [{ id: 1 }] }), true);
+            assert.equal(shouldShowPublicConfirmation({ status: 'complete', wire_count: 2 }), true);
+        });
+
+        it('does NOT open for complete with 0 wires', () => {
+            assert.equal(shouldShowPublicConfirmation({ status: 'complete', wires: [] }), false);
+            assert.equal(shouldShowPublicConfirmation({ status: 'complete', wire_count: 0 }), false);
+            assert.equal(shouldShowPublicConfirmation({ status: 'complete' }), false);
+        });
+
+        it('does NOT open for other statuses (no_wires, rejected, error, interrupted, queued)', () => {
+            assert.equal(shouldShowPublicConfirmation({ status: 'no_wires', wires: [] }), false);
+            assert.equal(shouldShowPublicConfirmation({ status: 'rejected', wires: [] }), false);
+            assert.equal(shouldShowPublicConfirmation({ status: 'error', wires: [] }), false);
+            assert.equal(shouldShowPublicConfirmation({ status: 'interrupted', wires: [] }), false);
+            assert.equal(shouldShowPublicConfirmation({ status: 'queued', wires: [] }), false);
+        });
+
+        it('does NOT open if user is logged in', () => {
+            const user = { id: 1, username: 'admin', role: 'admin' };
+            assert.equal(shouldShowPublicConfirmation({ status: 'complete', wires: [{ id: 1 }] }, user), false);
+        });
+
+        it('handles null or invalid analysis safely', () => {
+            assert.equal(shouldShowPublicConfirmation(null), false);
+            assert.equal(shouldShowPublicConfirmation(undefined), false);
+        });
+    });
+
+    describe('isTerminalStatus', () => {
+        it('identifies terminal statuses correctly', () => {
+            for (const s of TERMINAL_STATUSES) {
+                assert.equal(isTerminalStatus(s), true);
+                assert.equal(isTerminalStatus(s.toUpperCase()), true);
+            }
+        });
+
+        it('returns false for non-terminal statuses', () => {
+            assert.equal(isTerminalStatus('queued'), false);
+            assert.equal(isTerminalStatus('processing'), false);
+            assert.equal(isTerminalStatus('pending'), false);
+            assert.equal(isTerminalStatus('unavailable'), false);
+        });
+
+        it('handles null, undefined, empty safely', () => {
+            assert.equal(isTerminalStatus(null), false);
+            assert.equal(isTerminalStatus(undefined), false);
+            assert.equal(isTerminalStatus(''), false);
+            assert.equal(isTerminalStatus(123), false);
         });
     });
 });

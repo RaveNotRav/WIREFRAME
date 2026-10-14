@@ -1,3 +1,14 @@
+export function formatRejectionReason(code) {
+    if (!code) return '';
+    const map = {
+        'resolution_too_low': 'The photo is too small. Use the original photo from your camera, not one sent through Telegram or Messenger.',
+        'too_dark': 'The photo is too dark. Retake it in better lighting or daytime.',
+        'too_blurry': 'The photo is too blurry. Hold the camera steady and tap to focus on the wires.',
+        'corrupt_file': 'The file is corrupt or unreadable. Please choose a valid JPG or PNG image.'
+    };
+    return map[code] || 'The photo could not be analyzed. Please retake it.';
+}
+
 export function statusPresentation(statusOrAnalysis, analysis) {
     let status = statusOrAnalysis;
     let data = analysis;
@@ -23,8 +34,9 @@ export function statusPresentation(statusOrAnalysis, analysis) {
     } else if (s === 'complete') {
         label = 'Complete'; text = 'Complete'; style = 'success'; risk = 'low'; icon = 'check'; cssClass = 'badge-complete';
     } else if (s === 'rejected') {
-        const sum = data?.summary || 'Invalid';
-        label = 'Rejected: ' + sum; text = 'Rejected'; style = 'danger'; risk = 'critical'; icon = 'x'; cssClass = 'badge-rejected'; reason = sum;
+        const sum = data?.summary || '';
+        reason = formatRejectionReason(sum);
+        label = 'Rejected: ' + sum; text = 'Rejected'; style = 'danger'; risk = 'critical'; icon = 'x'; cssClass = 'badge-rejected';
     } else if (s === 'no_wires') {
         label = 'No Wires'; text = 'No Wires'; style = 'success'; risk = 'low'; icon = 'check'; cssClass = 'badge-no-wires'; reason = 'No wires were detected in the image.';
     } else if (s === 'error') {
@@ -205,4 +217,20 @@ export function safetyPresentation(arg1, arg2, arg3) {
         crsText,
         crsColor
     };
+}
+
+export function shouldShowPublicConfirmation(analysis, user = null) {
+    if (user) return false;
+    if (!analysis || analysis.status !== 'complete') return false;
+    const wireCount = Array.isArray(analysis.wires)
+        ? analysis.wires.length
+        : (typeof analysis.wire_count === 'number' ? analysis.wire_count : 0);
+    return wireCount > 0;
+}
+
+export const TERMINAL_STATUSES = ['complete', 'rejected', 'no_wires', 'error', 'interrupted'];
+
+export function isTerminalStatus(status) {
+    if (!status || typeof status !== 'string') return false;
+    return TERMINAL_STATUSES.includes(status.toLowerCase());
 }

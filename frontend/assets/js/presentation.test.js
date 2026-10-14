@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { statusPresentation, safetyPresentation } from './presentation.js';
+import { statusPresentation, safetyPresentation, formatRejectionReason, shouldShowPublicConfirmation, isTerminalStatus } from './presentation.js';
 
 describe('Presentation Logic (re-exported via presentation.js)', () => {
     describe('statusPresentation', () => {
@@ -16,6 +16,15 @@ describe('Presentation Logic (re-exported via presentation.js)', () => {
         });
     });
 
+    describe('formatRejectionReason', () => {
+        it('should format rejection reasons through re-export', () => {
+            assert.equal(
+                formatRejectionReason('resolution_too_low'),
+                'The photo is too small. Use the original photo from your camera, not one sent through Telegram or Messenger.'
+            );
+        });
+    });
+
     describe('safetyPresentation', () => {
         it('should handle Safe correctly', () => {
             assert.equal(safetyPresentation('safe').text, 'Safe');
@@ -24,6 +33,20 @@ describe('Presentation Logic (re-exported via presentation.js)', () => {
             assert.notEqual(safetyPresentation('unavailable').text, 'Safe');
             assert.notEqual(safetyPresentation('Unknown').text, 'Safe');
             assert.equal(safetyPresentation('unavailable').text, 'Unknown');
+        });
+    });
+
+    describe('shouldShowPublicConfirmation', () => {
+        it('re-exports shouldShowPublicConfirmation correctly', () => {
+            assert.equal(shouldShowPublicConfirmation({ status: 'complete', wires: [{ id: 1 }] }), true);
+            assert.equal(shouldShowPublicConfirmation({ status: 'no_wires' }), false);
+        });
+    });
+
+    describe('isTerminalStatus', () => {
+        it('re-exports isTerminalStatus correctly', () => {
+            assert.equal(isTerminalStatus('complete'), true);
+            assert.equal(isTerminalStatus('queued'), false);
         });
     });
 });

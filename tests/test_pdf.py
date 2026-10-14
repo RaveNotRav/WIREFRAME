@@ -117,6 +117,16 @@ def test_build_pdf_and_summary_titles(tmp_path, monkeypatch):
     assert os.path.exists(summary_path)
     assert any("WIREFRAME Summary Report" in getattr(f, "text", "") for f in captured_stories[1])
 
+    mock_pdf_path = str(tmp_path / "mock_single.pdf")
+    build_pdf({"id": "TEST-MOCK", "is_mock": True}, mock_pdf_path)
+    assert os.path.exists(mock_pdf_path)
+    assert any("[DEMO / MOCK RESULTS]" in getattr(f, "text", "") for f in captured_stories[2])
+
+    mock_summary_path = str(tmp_path / "mock_summary.pdf")
+    build_summary_pdf({"items": [], "has_mock": True}, mock_summary_path)
+    assert os.path.exists(mock_summary_path)
+    assert any("[DEMO / MOCK RESULTS]" in getattr(f, "text", "") for f in captured_stories[3])
+
 
 def test_pdf_and_summary_with_and_without_clearance_columns(client_admin, monkeypatch):
     """Assert PDF and summary generation succeed with and without clearance columns, and check pole height."""

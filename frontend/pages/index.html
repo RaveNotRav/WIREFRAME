@@ -142,6 +142,21 @@
                 font-size: 1.2rem;
             }
         }
+
+        @media (max-width: 640px), (max-height: 700px) {
+            body, html {
+                overflow-y: auto;
+                height: auto;
+                min-height: 100%;
+            }
+            .hero-content {
+                height: auto;
+                min-height: calc(100vh - 80px);
+                padding-top: 24px;
+                padding-bottom: 40px;
+                box-sizing: border-box;
+            }
+        }
     
 
 

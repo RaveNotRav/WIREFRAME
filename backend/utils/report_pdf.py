@@ -92,7 +92,7 @@ def draw_watermark(canvas, doc, is_mock, page_info):
         canvas.setFillColorRGB(1, 0, 0, alpha=0.15)
         canvas.translate(doc.pagesize[0]/2, doc.pagesize[1]/2)
         canvas.rotate(45)
-        canvas.drawCentredString(0, 0, "MOCK DATA - NOT A REAL ANALYSIS")
+        canvas.drawCentredString(0, 0, "DEMO / MOCK RESULTS")
     canvas.restoreState()
 
 def build_pdf(data: dict, output_path: str):
@@ -161,7 +161,7 @@ def build_pdf(data: dict, output_path: str):
     # Header
     title_text = f"WIREFRAME Report: {safe_str(data.get('id', 'Unknown'))}"
     if is_mock:
-        title_text += " <font color='red'>(MOCK DATA)</font>"
+        title_text += " <font color='red'>[DEMO / MOCK RESULTS]</font>"
     elements.append(Paragraph(title_text, title_style))
     elements.append(Paragraph(f"Generated at: {format_pht_timestamp(datetime.now(timezone.utc))}", normal_style))
     elements.append(Spacer(1, 12))
@@ -340,7 +340,7 @@ def build_summary_pdf(data: dict, output_path: str):
     
     title_text = "WIREFRAME Summary Report"
     if is_mock:
-        title_text += " <font color='red'>(CONTAINS MOCK DATA)</font>"
+        title_text += " <font color='red'>[DEMO / MOCK RESULTS]</font>"
     elements.append(Paragraph(title_text, title_style))
     elements.append(Paragraph(f"Generated at: {format_pht_timestamp(datetime.now(timezone.utc))}", normal_style))
     elements.append(Spacer(1, 12))
