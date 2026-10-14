@@ -670,4 +670,289 @@ def test_real_mode_pipeline_regression_float_centerline(tmp_path, monkeypatch):
     conn.close()
 
 
+def test_clearance_rollup_in_mock_mode(tmp_path, monkeypatch):
+    """(a) Mock mode end to end: clearance_ok, clearance_available, sag_meters are filled and match lowest wire."""
+    from make_demo_images import make_demo_images
+    from backend.database import get_connection
+    from backend.utils.pipeline import execute_pipeline
+
+    demo_dir = tmp_path / "demo"
+    make_demo_images(str(demo_dir))
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WIREFRAME_MOCK", "1")
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO analyses (filename, status, company, barangay, street) VALUES ('safe-pole.jpg', 'queued', 'Meralco', 'San Antonio', 'Perea St')"
+    )
+    a_id = cur.lastrowid
+    conn.commit()
+
+    execute_pipeline(a_id, str(demo_dir / "safe-pole.jpg"), conn, model=None, batch_id=None)
+
+    row = conn.execute("SELECT * FROM analyses WHERE id = ?", (a_id,)).fetchone()
+    assert row["status"] == "complete"
+    assert row["clearance_available"] is not None
+    assert row["sag_meters"] is not None
+
+    wires = conn.execute("SELECT * FROM wires WHERE analysis_id = ?", (a_id,)).fetchall()
+    valid_wires = [w for w in wires if w["clearance_m"] is not None and w["clearance_status"] != "unavailable"]
+    assert len(valid_wires) > 0
+
+    lowest_w = min(valid_wires, key=lambda w: w["clearance_m"])
+    assert row["clearance_available"] == pytest.approx(lowest_w["clearance_m"], abs=1e-4)
+    expected_ok = 1 if lowest_w["clearance_status"] == "ok" else 0
+    assert row["clearance_ok"] == expected_ok
+
+    max_sag = max(w["sag_m"] for w in wires if w["sag_m"] is not None)
+    assert row["sag_meters"] == pytest.approx(max_sag, abs=1e-4)
+
+    conn.close()
+
+
+def test_clearance_no_pole_real_code_path(tmp_path, monkeypatch):
+    """(b) No pole detected: clearance columns remain NULL and API returns ground_clearance_status 'no_pole'."""
+    import cv2
+    import torch
+    import numpy as np
+    from backend.database import get_connection
+    from backend.utils.pipeline import execute_pipeline
+    from backend.utils.cv.catenary import cosh_func
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WIREFRAME_MOCK", "0")
+
+    h, w = 300, 500
+    img_synth = np.full((h, w, 3), 120, dtype=np.uint8)
+    # Add texture for blur variance check
+    img_synth[::2, ::2] = 200
+    input_path = tmp_path / "wire_only.jpg"
+    cv2.imwrite(str(input_path), img_synth)
+
+    wire_mask = np.zeros((h, w), dtype=np.uint8)
+    x = np.arange(50, 450, dtype=float)
+    y_up = cosh_func(x, 250.0, -100.0, 150.0)
+    y_hang = float(np.max(y_up)) - (y_up - 80.0)
+    for xi, yi in zip(x, y_hang):
+        cv2.circle(wire_mask, (int(xi), int(round(yi))), 2, 255, -1)
+
+    class FakeBoxes:
+        def __init__(self):
+            self.xyxy = torch.tensor([[50.0, float(np.min(y_hang) - 5), 450.0, float(np.max(y_hang) + 5)]], dtype=torch.float32)
+            self.cls = torch.tensor([1])
+            self.conf = torch.tensor([0.90])
+
+    class FakeMasks:
+        def __init__(self):
+            self.data = torch.stack([torch.from_numpy(wire_mask.astype(np.float32) / 255.0)])
+
+    class FakeResult:
+        def __init__(self):
+            self.boxes = FakeBoxes()
+            self.masks = FakeMasks()
+            self.names = {1: "power_line"}
+
+    def wire_only_model(bgr_input, **kwargs):
+        return [FakeResult()]
+
+    conn = get_connection()
+    cur = conn.cursor()
+    from backend.auth import _hash_token
+    guest_tok = "tok123"
+    cur.execute(
+        "INSERT INTO analyses (filename, status, company, barangay, street, guest_session_id) VALUES ('wire_only.jpg', 'queued', 'Meralco', 'San Antonio', 'Perea St', ?)",
+        (_hash_token(guest_tok),)
+    )
+    a_id = cur.lastrowid
+    conn.commit()
+
+    execute_pipeline(a_id, str(input_path), conn, model=wire_only_model, batch_id=None)
+
+    row = conn.execute("SELECT * FROM analyses WHERE id = ?", (a_id,)).fetchone()
+    assert row["status"] == "complete"
+    assert row["clearance_ok"] is None
+    assert row["clearance_available"] is None
+    assert row["pec_min_clearance_m"] is None
+
+    # Test API mapping for this row
+    from fastapi.testclient import TestClient
+    import main
+    client = TestClient(main.app)
+    client.cookies.set("guest_session", guest_tok)
+    res = client.get(f"/api/analysis/{a_id}/result")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ground_clearance_status"] == "no_pole"
+    assert data["ground_clearance_m"] is None
+
+    conn.close()
+
+
+def test_api_clearance_status_mappings():
+    """(c) API mapping for above, near, below, and no_pole."""
+    from fastapi.testclient import TestClient
+    import main
+    from backend.database import get_connection
+    from backend.auth import _hash_token
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    guest_tok = "test_tok"
+    ghash = _hash_token(guest_tok)
+
+    # above: clearance_ok=1, clearance_available=6.0, pec_min=5.5
+    cur.execute("INSERT INTO analyses (filename, status, clearance_ok, clearance_available, pec_min_clearance_m, max_crs, guest_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ('t1.jpg', 'complete', 1, 6.0, 5.5, 10.0, ghash))
+    id_above = cur.lastrowid
+    cur.execute("INSERT INTO wires (analysis_id, class_name, clearance_m, clearance_status) VALUES (?, 'power_line', 6.0, 'ok')", (id_above,))
+
+    # near: clearance_ok=2, clearance_available=5.5, pec_min=5.5
+    cur.execute("INSERT INTO analyses (filename, status, clearance_ok, clearance_available, pec_min_clearance_m, max_crs, guest_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ('t2.jpg', 'complete', 2, 5.5, 5.5, 10.0, ghash))
+    id_near = cur.lastrowid
+    cur.execute("INSERT INTO wires (analysis_id, class_name, clearance_m, clearance_status) VALUES (?, 'power_line', 5.5, 'marginal')", (id_near,))
+
+    # below: clearance_ok=0, clearance_available=4.0, pec_min=5.5 (< 5.5)
+    cur.execute("INSERT INTO analyses (filename, status, clearance_ok, clearance_available, pec_min_clearance_m, max_crs, guest_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ('t3.jpg', 'complete', 0, 4.0, 5.5, 10.0, ghash))
+    id_below = cur.lastrowid
+    cur.execute("INSERT INTO wires (analysis_id, class_name, clearance_m, clearance_status) VALUES (?, 'power_line', 4.0, 'below')", (id_below,))
+
+    # no_pole: complete with wires but clearance_available is None
+    cur.execute("INSERT INTO analyses (filename, status, clearance_ok, clearance_available, pec_min_clearance_m, max_crs, guest_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ('t4.jpg', 'complete', None, None, None, 10.0, ghash))
+    id_nopole = cur.lastrowid
+    cur.execute("INSERT INTO wires (analysis_id, class_name, clearance_m, clearance_status) VALUES (?, 'power_line', NULL, 'unavailable')", (id_nopole,))
+
+    # no_wires: status='no_wires'
+    cur.execute("INSERT INTO analyses (filename, status, clearance_ok, clearance_available, pec_min_clearance_m, max_crs, guest_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ('t5.jpg', 'no_wires', None, None, None, 0.0, ghash))
+    id_nowires = cur.lastrowid
+
+    # no_wires: status='complete' but 0 wire rows
+    cur.execute("INSERT INTO analyses (filename, status, clearance_ok, clearance_available, pec_min_clearance_m, max_crs, guest_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ('t6.jpg', 'complete', None, None, None, 0.0, ghash))
+    id_nowires2 = cur.lastrowid
+
+    # queued: status='queued' -> unavailable (never gives no_pole)
+    cur.execute("INSERT INTO analyses (filename, status, clearance_ok, clearance_available, pec_min_clearance_m, max_crs, guest_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ('t7.jpg', 'queued', None, None, None, None, ghash))
+    id_queued = cur.lastrowid
+
+    # error: status='error' -> unavailable (never gives no_pole)
+    cur.execute("INSERT INTO analyses (filename, status, clearance_ok, clearance_available, pec_min_clearance_m, max_crs, guest_session_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ('t8.jpg', 'error', None, None, None, None, ghash))
+    id_error = cur.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    client = TestClient(main.app)
+    client.cookies.set("guest_session", guest_tok)
+
+    assert client.get(f"/api/analysis/{id_above}/result").json()["ground_clearance_status"] == "above"
+    assert client.get(f"/api/analysis/{id_near}/result").json()["ground_clearance_status"] == "near"
+    assert client.get(f"/api/analysis/{id_below}/result").json()["ground_clearance_status"] == "below"
+    assert client.get(f"/api/analysis/{id_nopole}/result").json()["ground_clearance_status"] == "no_pole"
+    assert client.get(f"/api/analysis/{id_nowires}/result").json()["ground_clearance_status"] == "no_wires"
+    assert client.get(f"/api/analysis/{id_nowires2}/result").json()["ground_clearance_status"] == "no_wires"
+    assert client.get(f"/api/analysis/{id_queued}/result").json()["ground_clearance_status"] == "unavailable"
+    assert client.get(f"/api/analysis/{id_error}/result").json()["ground_clearance_status"] == "unavailable"
+
+
+def test_lowest_wire_marginal_rollup_and_api(tmp_path, monkeypatch):
+    """Assert lowest wire marginal (clearance 5.9m, PEC 6.0, margin 5%) gives clearance_ok 2 and API 'near'."""
+    import cv2
+    import torch
+    import numpy as np
+    from backend.database import get_connection
+    from backend.config_store import set_setting
+    from backend.utils.pipeline import execute_pipeline
+    from backend.utils.cv.catenary import cosh_func
+    from backend.auth import _hash_token
+    from fastapi.testclient import TestClient
+    import main
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WIREFRAME_MOCK", "0")
+
+    conn = get_connection()
+    set_setting("pec_min_clearance_by_class", {"default": 6.0, "power_line": 6.0})
+    set_setting("margin_of_error_pct", 5.0)
+    set_setting("pole_heights", [10.0])
+
+    # Synthetic image
+    h, w = 600, 800
+    img = np.full((h, w, 3), 120, dtype=np.uint8)
+    img[::2, ::2] = 200
+    input_path = tmp_path / "marginal_pole.jpg"
+    cv2.imwrite(str(input_path), img)
+
+    # Pole: y1=100, y2=500 -> pole_px = 400. With 10.0m pole, scale = 10.0/400 = 0.025 m/px.
+    # Ground reference is at bottom of pole = 500 px.
+    # To get clearance_m = 5.9 m:
+    # 5.9 / 0.025 = 236 px clearance above ground (i.e. y = 500 - 236 = 264 px).
+    pole_box = [600.0, 100.0, 650.0, 500.0]
+
+    # Create wire mask with lowest point at y=264 px
+    wire_mask = np.zeros((h, w), dtype=np.uint8)
+    x = np.arange(100, 700, dtype=float)
+    y_up = cosh_func(x, 400.0, -100.0, 200.0)
+    y_hang = 264.0 - (float(np.max(y_up)) - y_up)
+    for xi, yi in zip(x, y_hang):
+        cv2.circle(wire_mask, (int(xi), int(round(yi))), 2, 255, -1)
+
+    class FakeBoxes:
+        def __init__(self):
+            self.xyxy = torch.tensor([
+                [100.0, float(np.min(y_hang) - 5), 700.0, float(np.max(y_hang) + 5)],
+                pole_box
+            ], dtype=torch.float32)
+            self.cls = torch.tensor([0, 4]) # 0=power_line, 4=pole
+            self.conf = torch.tensor([0.92, 0.95])
+
+    class FakeMasks:
+        def __init__(self):
+            pole_mask = np.zeros((h, w), dtype=np.float32)
+            pole_mask[100:500, 600:650] = 1.0
+            self.data = torch.stack([
+                torch.from_numpy(wire_mask.astype(np.float32) / 255.0),
+                torch.from_numpy(pole_mask)
+            ])
+
+    class FakeResult:
+        def __init__(self):
+            self.boxes = FakeBoxes()
+            self.masks = FakeMasks()
+            self.names = {0: "power_line", 4: "pole"}
+
+    guest_tok = "tok_marginal"
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO analyses (filename, status, company, barangay, street, guest_session_id) VALUES ('marginal_pole.jpg', 'queued', 'Meralco', 'San Antonio', 'Perea St', ?)",
+        (_hash_token(guest_tok),)
+    )
+    a_id = cur.lastrowid
+    conn.commit()
+
+    execute_pipeline(a_id, str(input_path), conn, model=lambda img, **kwargs: [FakeResult()], batch_id=None)
+
+    row = conn.execute("SELECT * FROM analyses WHERE id = ?", (a_id,)).fetchone()
+    assert row["status"] == "complete"
+    assert row["clearance_ok"] == 2
+    assert row["clearance_available"] == pytest.approx(5.9, abs=0.1)
+
+    client = TestClient(main.app)
+    client.cookies.set("guest_session", guest_tok)
+    res = client.get(f"/api/analysis/{a_id}/result")
+    assert res.status_code == 200
+    assert res.json()["ground_clearance_status"] == "near"
+
+    conn.close()
+
+
+
 

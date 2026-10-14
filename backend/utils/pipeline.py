@@ -277,11 +277,50 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         barangay_risk = compute_barangay_risk(vni_res.vni, max_crs, dead_wires, len(analyzed_wires))
         final_score = compute_risk_score(detection_risk, barangay_risk)
         
+        # Roll up clearance and sag metrics
+        # clearance_ok encoding without a migration: 1 = ok, 0 = below, 2 = marginal, NULL = no clearance.
+        valid_clearances = [
+            fw for fw in final_wires
+            if fw.get("clearance_m") is not None and fw.get("clearance_status") in ("ok", "below", "marginal")
+        ]
+        
+        if valid_clearances:
+            lowest_wire = min(valid_clearances, key=lambda w: w["clearance_m"])
+            clearance_available = lowest_wire["clearance_m"]
+            status_str = lowest_wire.get("clearance_status")
+            if status_str == "ok":
+                clearance_ok = 1
+            elif status_str == "marginal":
+                clearance_ok = 2
+            elif status_str == "below":
+                clearance_ok = 0
+            else:
+                clearance_ok = None
+            cls_key = normalize_class_name(lowest_wire["class_name"])
+            pec_min_clearance_m = pec_min_map.get(cls_key, pec_min_map.get("default", 5.5))
+            
+            sags_m = [fw["sag_m"] for fw in final_wires if fw.get("sag_m") is not None]
+            sag_meters = max(sags_m) if sags_m else None
+            
+            pole_heights_cfg = get_setting("pole_heights", [10.0]) or [10.0]
+            assumed_pole_height_m = pole_heights_cfg[0] if isinstance(pole_heights_cfg, list) and pole_heights_cfg else 10.0
+        else:
+            clearance_ok = None
+            clearance_available = None
+            pec_min_clearance_m = None
+            sag_meters = None
+            assumed_pole_height_m = None
+
         conn.execute(
             """UPDATE analyses 
-               SET status = 'complete', vni = ?, max_crs = ?, barangay_risk = ?, risk_score = ?, dead_wire_count = ?, spectrum_path = ?, annotated_path = ?
+               SET status = 'complete', vni = ?, max_crs = ?, barangay_risk = ?, risk_score = ?, dead_wire_count = ?, spectrum_path = ?, annotated_path = ?,
+                   clearance_ok = ?, clearance_available = ?, pec_min_clearance_m = ?, sag_meters = ?, assumed_pole_height_m = ?
                WHERE id = ?""",
-            (vni_res.vni, max_crs, barangay_risk, final_score, dead_wires, spectrum_path, annotated_path, analysis_id)
+            (
+                vni_res.vni, max_crs, barangay_risk, final_score, dead_wires, spectrum_path, annotated_path,
+                clearance_ok, clearance_available, pec_min_clearance_m, sag_meters, assumed_pole_height_m,
+                analysis_id
+            )
         )
         conn.commit()
 

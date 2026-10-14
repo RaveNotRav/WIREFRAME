@@ -211,18 +211,28 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
         data["sag_m"] = data.get("sag_meters")
         data["ground_clearance_m"] = data.get("clearance_available")
         
-        # For ground_clearance_status
-        if data.get("clearance_ok") is True:
-            data["ground_clearance_status"] = "above"
-        elif data.get("clearance_ok") is False and data.get("clearance_available", 0) > 0:
-            data["ground_clearance_status"] = "below"
-        else:
-            data["ground_clearance_status"] = "unavailable"
-            
         wires_rows = conn.execute("SELECT * FROM wires WHERE analysis_id = ?", (analysis_id,)).fetchall()
         wires_data = [dict(w) for w in wires_rows]
         data["wires"] = wires_data
         
+        # ground_clearance_status mapping
+        # clearance_ok encoding without a migration: 1 = ok, 0 = below, 2 = marginal, NULL = no clearance.
+        status = data.get("status")
+        if status in ("queued", "processing", "error", "rejected", "interrupted"):
+            data["ground_clearance_status"] = "unavailable"
+        elif status == "no_wires" or len(wires_data) == 0:
+            data["ground_clearance_status"] = "no_wires"
+        elif data.get("clearance_available") is None:
+            data["ground_clearance_status"] = "no_pole"
+        elif data.get("clearance_ok") == 1:
+            data["ground_clearance_status"] = "above"
+        elif data.get("clearance_ok") == 2:
+            data["ground_clearance_status"] = "near"
+        elif data.get("clearance_ok") == 0:
+            data["ground_clearance_status"] = "below"
+        else:
+            data["ground_clearance_status"] = "unavailable"
+            
         return data
     finally:
         conn.close()

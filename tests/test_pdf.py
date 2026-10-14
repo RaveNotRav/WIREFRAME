@@ -117,3 +117,69 @@ def test_build_pdf_and_summary_titles(tmp_path, monkeypatch):
     assert os.path.exists(summary_path)
     assert any("WIREFRAME Summary Report" in getattr(f, "text", "") for f in captured_stories[1])
 
+
+def test_pdf_and_summary_with_and_without_clearance_columns(client_admin, monkeypatch):
+    """Assert PDF and summary generation succeed with and without clearance columns, and check pole height."""
+    from reportlab.platypus import SimpleDocTemplate
+
+    conn = get_connection()
+    conn.execute("INSERT OR IGNORE INTO batches (id, status, created_by) VALUES (1, 'complete', 1)")
+    
+    # 1. With clearance columns populated (assumed_pole_height_m = 10.0)
+    conn.execute("""
+        INSERT INTO analyses (
+            id, filename, batch_id, status, created_by,
+            clearance_ok, clearance_available, pec_min_clearance_m, sag_meters, assumed_pole_height_m
+        ) VALUES (801, 'with_clr.jpg', 1, 'complete', 1, 1, 6.2, 5.5, 0.45, 10.0)
+    """)
+    
+    # 2. Without clearance columns (NULL)
+    conn.execute("""
+        INSERT INTO analyses (
+            id, filename, batch_id, status, created_by,
+            clearance_ok, clearance_available, pec_min_clearance_m, sag_meters, assumed_pole_height_m
+        ) VALUES (802, 'without_clr.jpg', 1, 'complete', 1, NULL, NULL, NULL, NULL, NULL)
+    """)
+    conn.commit()
+
+    captured_stories = []
+    orig_build = SimpleDocTemplate.build
+
+    def mock_build(self, flowables, *args, **kwargs):
+        captured_stories.append(list(flowables))
+        return orig_build(self, flowables, *args, **kwargs)
+
+    monkeypatch.setattr(SimpleDocTemplate, "build", mock_build)
+
+    # Fetch PDF via API for analysis with clearance columns
+    r1 = client_admin.get("/api/reports/801.pdf")
+    assert r1.status_code == 200
+    assert r1.headers["content-type"] == "application/pdf"
+    assert r1.content.startswith(b"%PDF")
+
+    # Fetch PDF via API for analysis without clearance columns
+    r2 = client_admin.get("/api/reports/802.pdf")
+    assert r2.status_code == 200
+    assert r2.headers["content-type"] == "application/pdf"
+    assert r2.content.startswith(b"%PDF")
+
+    # Verify flowable content
+    story_with = captured_stories[0]
+    config_texts_with = [getattr(f, "text", "") for f in story_with if "Config Snapshot:" in getattr(f, "text", "")]
+    assert len(config_texts_with) == 1
+    assert "Pole height: 10.0m" in config_texts_with[0]
+
+    story_without = captured_stories[1]
+    config_texts_without = [getattr(f, "text", "") for f in story_without if "Config Snapshot:" in getattr(f, "text", "")]
+    assert len(config_texts_without) == 1
+    assert "Pole height: m" in config_texts_without[0]
+
+    # Generate summary report containing both analyses
+    r_sum = client_admin.post("/api/reports/summary", json={"analysis_ids": ["801", "802"]})
+    assert r_sum.status_code == 200
+    assert r_sum.headers["content-type"] == "application/pdf"
+    assert r_sum.content.startswith(b"%PDF")
+
+    conn.close()
+
+
