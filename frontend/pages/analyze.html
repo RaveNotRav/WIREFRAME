@@ -74,7 +74,7 @@
                     </div>
                     <div>Drag and drop images here, or click to capture/browse</div>
                     <div class="bento-tile-subtext">Supports JPG, PNG (Max 10MB, up to 10 files)</div>
-                    <input type="file" id="file-input" multiple accept="image/jpeg,image/png" capture="environment">
+                    <input type="file" id="file-input" multiple accept="image/jpeg,image/png">
                 </label>
                 <div id="thumbnails" style="display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap;"></div>
             </div>
@@ -131,10 +131,10 @@
         <div class="bento-tile bento-m neu-raised" id="tile-progress" style="display: none;" aria-live="polite">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Pipeline Status</h3>
-                <div style="display: flex; gap: 10px; align-items: center;">
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <span class="neu-badge" id="status-badge" data-risk="Unknown">Queued</span>
-                    <button class="neu-button neu-flat" id="btn-cancel" style="padding: 2px 8px; font-size: 0.8rem; display: none;">Cancel</button>
-                    <a href="#" id="btn-download-pdf" target="_blank" class="neu-button neu-flat" style="padding: 2px 8px; font-size: 0.8rem; display: none;" download>Download PDF</a>
+                    <button class="neu-button neu-flat" id="btn-cancel" style="padding: 6px 12px; font-size: 0.85rem; min-height: 44px; display: none;">Cancel</button>
+                    <a href="#" id="btn-download-pdf" target="_blank" class="neu-button neu-flat" style="padding: 6px 12px; font-size: 0.85rem; min-height: 44px; display: none; align-items: center;" download>Download PDF</a>
                 </div>
             </div>
             <div class="bento-tile-body">
