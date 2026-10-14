@@ -539,3 +539,135 @@ def test_crs_invariant_to_slope_for_fixed_sag_to_span():
     assert abs(crs_level - 11.76) < 0.01
 
 
+def test_mock_mode_pipeline_regression_annotated_jpeg(tmp_path, monkeypatch):
+    """End-to-end regression test in mock mode: verifies pipeline completes and writes valid annotated JPEG."""
+    import cv2
+    from make_demo_images import make_demo_images
+    from backend.database import get_connection
+    from backend.utils.pipeline import execute_pipeline
+
+    demo_dir = tmp_path / "demo"
+    make_demo_images(str(demo_dir))
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WIREFRAME_MOCK", "1")
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    for fname in ["safe-pole.jpg", "critical-pole.jpg"]:
+        cur.execute(
+            "INSERT INTO analyses (filename, status, company, barangay, street) VALUES (?, 'queued', 'Meralco', 'San Antonio', 'Perea St')",
+            (fname,)
+        )
+        a_id = cur.lastrowid
+        conn.commit()
+
+        execute_pipeline(a_id, str(demo_dir / fname), conn, model=None, batch_id=None)
+
+        row = conn.execute("SELECT status, annotated_path FROM analyses WHERE id = ?", (a_id,)).fetchone()
+        assert row["status"] == "complete"
+        assert row["annotated_path"] is not None
+
+        # Verify wire rows exist
+        wires = conn.execute("SELECT * FROM wires WHERE analysis_id = ?", (a_id,)).fetchall()
+        assert len(wires) > 0
+
+        # Verify annotated JPEG exists, is non-empty, and decodes with cv2.imread
+        annotated_file = tmp_path / "outputs" / f"analysis_{a_id}_annotated.jpg"
+        assert annotated_file.exists()
+        assert annotated_file.stat().st_size > 0
+        img = cv2.imread(str(annotated_file))
+        assert img is not None
+        assert img.shape[0] > 0 and img.shape[1] > 0
+
+    conn.close()
+
+
+def test_real_mode_pipeline_regression_float_centerline(tmp_path, monkeypatch):
+    """Real-mode pipeline regression: real segment_image, real extract_centerline, real catenary, real cv2 drawing."""
+    import cv2
+    import torch
+    import numpy as np
+    from backend.database import get_connection
+    from backend.utils.pipeline import execute_pipeline
+    from backend.utils.cv.catenary import cosh_func
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WIREFRAME_MOCK", "0")
+
+    # Generate synthetic input image (300x500 RGB) with content to pass quality validation
+    h, w = 300, 500
+    rng = np.random.RandomState(42)
+    img_synth = rng.randint(50, 200, (h, w, 3), dtype=np.uint8)
+    input_img_path = tmp_path / "synthetic_test.jpg"
+    cv2.imwrite(str(input_img_path), img_synth)
+
+    # Wire mask: hanging catenary curve between x=50 and x=450
+    wire_mask = np.zeros((h, w), dtype=np.uint8)
+    x = np.arange(50, 450, dtype=float)
+    y_up = cosh_func(x, 250.0, -100.0, 150.0)
+    y_hang = float(np.max(y_up)) - (y_up - 80.0)
+    for xi, yi in zip(x, y_hang):
+        cv2.circle(wire_mask, (int(xi), int(round(yi))), 2, 255, -1)
+
+    # Pole mask: vertical pole
+    pole_mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.rectangle(pole_mask, (240, 50), (260, 280), 255, -1)
+
+    # Fake model returning pole (cls=0) and wire (cls=1, power_line)
+    class FakeBoxes:
+        def __init__(self):
+            self.xyxy = torch.tensor([
+                [240.0, 50.0, 260.0, 280.0],
+                [50.0, float(np.min(y_hang) - 5), 450.0, float(np.max(y_hang) + 5)]
+            ], dtype=torch.float32)
+            self.cls = torch.tensor([0, 1])
+            self.conf = torch.tensor([0.95, 0.90])
+
+    class FakeMasks:
+        def __init__(self):
+            m1 = torch.from_numpy(pole_mask.astype(np.float32) / 255.0)
+            m2 = torch.from_numpy(wire_mask.astype(np.float32) / 255.0)
+            self.data = torch.stack([m1, m2])
+
+    class FakeResult:
+        def __init__(self):
+            self.boxes = FakeBoxes()
+            self.masks = FakeMasks()
+            self.names = {0: "pole", 1: "power_line"}
+
+    def fake_model(bgr_input, **kwargs):
+        return [FakeResult()]
+
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO analyses (filename, status, company, barangay, street) VALUES ('synthetic_test.jpg', 'queued', 'Meralco', 'San Antonio', 'Perea St')"
+    )
+    a_id = cur.lastrowid
+    conn.commit()
+
+    execute_pipeline(a_id, str(input_img_path), conn, model=fake_model, batch_id=None)
+
+    row = conn.execute("SELECT status, annotated_path FROM analyses WHERE id = ?", (a_id,)).fetchone()
+    assert row["status"] == "complete"
+    assert row["annotated_path"] is not None
+
+    wires = conn.execute("SELECT * FROM wires WHERE analysis_id = ?", (a_id,)).fetchall()
+    assert len(wires) == 1
+    wire = wires[0]
+    assert wire["class_name"] == "power_line"
+    assert wire["sag_px"] > 0.0
+
+    annotated_file = tmp_path / "outputs" / f"analysis_{a_id}_annotated.jpg"
+    assert annotated_file.exists()
+    assert annotated_file.stat().st_size > 0
+    img = cv2.imread(str(annotated_file))
+    assert img is not None
+    assert img.shape == (h, w, 3)
+
+    conn.close()
+
+
+

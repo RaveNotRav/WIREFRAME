@@ -241,6 +241,7 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         import os
         import cv2
         import ast
+        import numpy as np
         from pathlib import Path
         base_outputs = Path("outputs").resolve()
         base_outputs.mkdir(exist_ok=True)
@@ -264,8 +265,8 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             cv2.putText(annotated_img, w["class_name"], (bx1, by1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
             polyline = ast.literal_eval(w["centerline_json"])
             if len(polyline) > 1:
-                for i in range(len(polyline)-1):
-                    cv2.line(annotated_img, polyline[i], polyline[i+1], (0, 0, 255), 2)
+                pts = np.round(polyline).astype(np.int32).reshape(-1, 1, 2)
+                cv2.polylines(annotated_img, [pts], isClosed=False, color=(0, 0, 255), thickness=2)
                     
         annotated_file = base_outputs / f"analysis_{analysis_id}_annotated.jpg"
         cv2.imwrite(str(annotated_file), cv2.cvtColor(annotated_img, cv2.COLOR_RGB2BGR))
