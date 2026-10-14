@@ -65,12 +65,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         trendDays: 30
     };
 
-    const mockToggleContainer = document.getElementById('mock-toggle-container');
+    const mockToggleContainer = document.getElementById('mock-toggle-container') || document.getElementById('include-mock-toggle-container');
     const mockToggle = document.getElementById('include-mock-toggle');
+    const mockKpiBanner = document.getElementById('mock-kpi-banner');
     const trendDaysSelect = document.getElementById('trend-days');
+
+    function updateMockLabel() {
+        if (mockKpiBanner) {
+            mockKpiBanner.style.display = state.includeMock ? 'block' : 'none';
+        }
+    }
 
     mockToggle.addEventListener('change', (e) => {
         state.includeMock = e.target.checked;
+        updateMockLabel();
         loadDashboardStats();
         loadAllAnalyses();
     });
@@ -80,16 +88,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadDashboardStats();
     });
 
-    // Determine if mock data exists to show toggle
+    // Determine if mock data exists to show toggle, and auto-enable if no real data
     try {
-        const mockCheckRes = await fetch('/api/analysis?is_mock=1&limit=1');
+        const cacheBuster = `&_t=${Date.now()}`;
+        const mockCheckRes = await fetch(`/api/analysis?is_mock=1&limit=1${cacheBuster}`);
         if (mockCheckRes.ok) {
             const mockData = await mockCheckRes.json();
-            if (mockData.total > 0) {
-                mockToggleContainer.style.display = 'block';
+            const hasMock = (mockData.total || 0) > 0;
+            if (hasMock) {
+                if (mockToggleContainer) mockToggleContainer.style.display = 'block';
+
+                // Check if any non-mock complete analyses exist
+                const realCheckRes = await fetch(`/api/analysis?is_mock=0&status=complete&limit=1${cacheBuster}`);
+                if (realCheckRes.ok) {
+                    const realData = await realCheckRes.json();
+                    const hasReal = (realData.total || 0) > 0;
+                    if (!hasReal) {
+                        state.includeMock = true;
+                        if (mockToggle) mockToggle.checked = true;
+                    }
+                }
             }
         }
-    } catch (e) {}
+    } catch (e) {
+        console.error('Failed to check mock/real data status:', e);
+    }
+
+    updateMockLabel();
 
     // Load initial data
     loadDashboardStats();
