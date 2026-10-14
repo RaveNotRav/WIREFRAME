@@ -21,3 +21,5 @@ out/
 /scratch_*.txt
 datasets/
 archive/
+
+passwords*.txt
