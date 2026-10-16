@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.auth import User, get_current_user, get_optional_user, require_role, verify_csrf
-from backend.config_store import _cache
+from backend.config_store import _cache, NO_WIRES_ACTION_TEXT
 from backend.database import get_connection
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -38,7 +38,10 @@ async def get_config_public():
     
     # Whitelist
     whitelist = ["action_mapping", "risk_bands", "pec_min_clearance_by_class", "margin_of_error_pct", "pole_heights", "safety_mapping"]
-    return {k: v for k, v in settings.items() if k in whitelist}
+    filtered = {k: v for k, v in settings.items() if k in whitelist}
+    if "action_mapping" in filtered and isinstance(filtered["action_mapping"], dict):
+        filtered["action_mapping"]["no_wires"] = NO_WIRES_ACTION_TEXT
+    return filtered
 
 @router.put("", dependencies=[Depends(verify_csrf), Depends(require_role(["admin"]))])
 async def update_config(payload: dict[str, Any], user: User = Depends(require_role(["admin"]))):

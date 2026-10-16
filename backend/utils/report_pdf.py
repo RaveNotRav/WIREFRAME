@@ -199,13 +199,6 @@ def build_pdf(data: dict, output_path: str):
     elements.append(Paragraph(f"<b>Model:</b> {safe_str(data.get('model_file', 'mock'))}", normal_style))
     elements.append(Spacer(1, 12))
     
-    # Images
-    elements.append(Paragraph("<b>Images</b>", h2_style))
-    orig_temp = process_image(data.get('original_path'))
-    ann_temp = process_image(data.get('annotated_path'))
-    
-    # We want them side by side
-    
     def get_img_flowable(path, max_width, max_height):
         if not path:
             return Paragraph("<i>[Image Missing/Corrupt]</i>", normal_style)
@@ -233,96 +226,106 @@ def build_pdf(data: dict, output_path: str):
             import logging
             logging.getLogger(__name__).warning(f"Failed to embed image {path}: {e}")
             return Paragraph("<i>[Image Error]</i>", normal_style)
-            
-    img1 = get_img_flowable(orig_temp, 3 * inch, 4 * inch)
-    img2 = get_img_flowable(ann_temp, 3 * inch, 4 * inch)
-    
-    img_table = Table([[img1, img2]], colWidths=[3.2*inch, 3.2*inch])
-    img_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-    ]))
-    elements.append(img_table)
-    elements.append(Spacer(1, 12))
-    
-    # VNI
-    elements.append(Paragraph(f"<b>Vegetation Index (VNI):</b> {safe_str(data.get('vni'))}", h3_style))
-    spec_temp = process_image(data.get('spectrum_path'))
-    if spec_temp:
-        elements.append(get_img_flowable(spec_temp, 6*inch, 2*inch))
-    elements.append(Spacer(1, 12))
-    
-    # Wires Table
-    elements.append(Paragraph("<b>Detected Wires</b>", h2_style))
-    wires = data.get('wires', [])
-    if not wires:
-        elements.append(Paragraph("No wires detected.", normal_style))
-    else:
-        table_data = [[
-            Paragraph("<b>Class</b>", normal_style),
-            Paragraph("<b>Conf</b>", normal_style),
-            Paragraph("<b>CRS</b>", normal_style),
-            Paragraph("<b>Band</b>", normal_style),
-            Paragraph("<b>Sag (m)</b>", normal_style),
-            Paragraph("<b>Span (m)</b>", normal_style),
-            Paragraph("<b>Clearance</b>", normal_style),
-            Paragraph("<b>Safety</b>", normal_style)
-        ]]
-        
-        for w in wires:
-            table_data.append([
-                Paragraph(safe_str(w.get('class_name')), normal_style),
-                Paragraph(safe_str(f"{w.get('confidence', 0):.2f}"), normal_style),
-                Paragraph(safe_str(w.get('crs')), normal_style),
-                Paragraph(safe_str(w.get('crs_band')), normal_style),
-                Paragraph(safe_str(w.get('sag_m')), normal_style),
-                Paragraph(safe_str(w.get('span_m')), normal_style),
-                Paragraph(safe_str(f"{w.get('clearance_min_m')} - {w.get('clearance_max_m')}"), normal_style),
-                Paragraph(safe_str(w.get('safety_level')), normal_style),
-            ])
-            
-        t = Table(table_data, repeatRows=1)
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-            ('INNERGRID', (0,0), (-1,-1), 0.25, colors.black),
-            ('BOX', (0,0), (-1,-1), 0.25, colors.black),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ]))
-        elements.append(t)
-        
-    elements.append(Spacer(1, 24))
-    elements.append(Paragraph("<i>Advisory estimate, not an official determination.</i>", normal_style))
 
-    # Build PDF with PageNumCanvas equivalent inline
-    from reportlab.pdfgen import canvas
-    class PageNumCanvas(canvas.Canvas):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self.pages = []
+    orig_temp = None
+    ann_temp = None
+    spec_temp = None
+    try:
+        # Images
+        elements.append(Paragraph("<b>Images</b>", h2_style))
+        orig_temp = process_image(data.get('original_path'))
+        ann_temp = process_image(data.get('annotated_path'))
+        
+        # We want them side by side
+        img1 = get_img_flowable(orig_temp, 3 * inch, 4 * inch)
+        img2 = get_img_flowable(ann_temp, 3 * inch, 4 * inch)
+        
+        img_table = Table([[img1, img2]], colWidths=[3.2*inch, 3.2*inch])
+        img_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ]))
+        elements.append(img_table)
+        elements.append(Spacer(1, 12))
+        
+        # VNI
+        elements.append(Paragraph(f"<b>Vegetation Index (VNI):</b> {safe_str(data.get('vni'))}", h3_style))
+        spec_temp = process_image(data.get('spectrum_path'))
+        if spec_temp:
+            elements.append(get_img_flowable(spec_temp, 6*inch, 2*inch))
+        elements.append(Spacer(1, 12))
+        
+        # Wires Table
+        elements.append(Paragraph("<b>Detected Wires</b>", h2_style))
+        wires = data.get('wires', [])
+        if not wires:
+            elements.append(Paragraph("No wires detected.", normal_style))
+        else:
+            table_data = [[
+                Paragraph("<b>Class</b>", normal_style),
+                Paragraph("<b>Conf</b>", normal_style),
+                Paragraph("<b>CRS</b>", normal_style),
+                Paragraph("<b>Band</b>", normal_style),
+                Paragraph("<b>Sag (m)</b>", normal_style),
+                Paragraph("<b>Span (m)</b>", normal_style),
+                Paragraph("<b>Clearance</b>", normal_style),
+                Paragraph("<b>Safety</b>", normal_style)
+            ]]
             
-        def showPage(self):
-            self.pages.append(dict(self.__dict__))
-            self._startPage()
+            for w in wires:
+                table_data.append([
+                    Paragraph(safe_str(w.get('class_name')), normal_style),
+                    Paragraph(safe_str(f"{w.get('confidence', 0):.2f}"), normal_style),
+                    Paragraph(safe_str(w.get('crs')), normal_style),
+                    Paragraph(safe_str(w.get('crs_band')), normal_style),
+                    Paragraph(safe_str(w.get('sag_m')), normal_style),
+                    Paragraph(safe_str(w.get('span_m')), normal_style),
+                    Paragraph(safe_str(f"{w.get('clearance_min_m')} - {w.get('clearance_max_m')}"), normal_style),
+                    Paragraph(safe_str(w.get('safety_level')), normal_style),
+                ])
+                
+            t = Table(table_data, repeatRows=1)
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                ('INNERGRID', (0,0), (-1,-1), 0.25, colors.black),
+                ('BOX', (0,0), (-1,-1), 0.25, colors.black),
+                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ]))
+            elements.append(t)
             
-        def save(self):
-            num_pages = len(self.pages)
-            for page in self.pages:
-                self.__dict__.update(page)
-                draw_watermark(self, doc, is_mock, {'total_pages': num_pages})
-                super().showPage()
-            super().save()
-            
-    doc.build(elements, canvasmaker=PageNumCanvas)
-    
-    # Cleanup temps
-    for p in [orig_temp, ann_temp, spec_temp]:
-        if p and os.path.exists(p):
-            try:
-                os.remove(p)
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to render wire row {w.get('id')}: {e}")
-                pass
+        elements.append(Spacer(1, 24))
+        elements.append(Paragraph("<i>Advisory estimate, not an official determination.</i>", normal_style))
+
+        # Build PDF with PageNumCanvas equivalent inline
+        from reportlab.pdfgen import canvas
+        class PageNumCanvas(canvas.Canvas):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.pages = []
+                
+            def showPage(self):
+                self.pages.append(dict(self.__dict__))
+                self._startPage()
+                
+            def save(self):
+                num_pages = len(self.pages)
+                for page in self.pages:
+                    self.__dict__.update(page)
+                    draw_watermark(self, doc, is_mock, {'total_pages': num_pages})
+                    super().showPage()
+                super().save()
+                
+        doc.build(elements, canvasmaker=PageNumCanvas)
+    finally:
+        # Cleanup temps
+        for p in [orig_temp, ann_temp, spec_temp]:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to remove temp PDF image {p}: {e}")
+                    pass
 
 def build_summary_pdf(data: dict, output_path: str):
     """

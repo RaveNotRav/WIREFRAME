@@ -3,7 +3,9 @@ import json
 import os
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import csv
@@ -11,20 +13,24 @@ import io
 
 from backend import main_state
 from backend.auth import User, get_current_user, get_optional_user, verify_analysis_access, require_role, verify_csrf
+from backend.config_store import NO_WIRES_ACTION_TEXT
 from backend.database import get_connection
 from backend.utils.report_pdf import build_pdf, build_summary_pdf, format_pht_timestamp
 
 router = APIRouter(prefix="/api", tags=["reporting"])
 
 @router.get("/mpc/ranking", dependencies=[Depends(require_role(["lgu_engineer", "admin"]))])
-async def get_ranking():
+async def get_ranking(include_mock: bool = Query(False, description="Include mock analyses")):
     conn = get_connection()
     try:
-        rows = conn.execute("""
+        mock_clause = ""
+        if not include_mock:
+            mock_clause = "AND a.is_mock = 0"
+        rows = conn.execute(f"""
             SELECT s.name as company, s.barangay, s.street, AVG(a.risk_score) as avg_risk, COUNT(a.id) as analysis_count
             FROM analyses a
             JOIN sites s ON a.site_id = s.id
-            WHERE a.status = 'complete'
+            WHERE a.status = 'complete' {mock_clause}
             GROUP BY s.id, s.barangay, s.street
             ORDER BY avg_risk DESC
         """).fetchall()
@@ -72,10 +78,12 @@ def _get_analysis_data(conn, analysis_id: int):
             safety_level = 'Safe'
             
     if data['status'] == 'no_wires':
-        safety_level = 'Safe'
+        safety_level = 'No Wires Detected'
+        data['action_text'] = NO_WIRES_ACTION_TEXT
+    else:
+        data['action_text'] = action_mapping.get(safety_level, '')
         
     data['safety_level'] = safety_level
-    data['action_text'] = action_mapping.get(safety_level, '')
     
     reasons = []
     if data['status'] == 'no_wires':
@@ -201,11 +209,6 @@ def generate_summary(payload: SummaryRequest, user: User = Depends(get_current_u
             if user.role == "field_inspector" and data["created_by"] != user.id:
                 raise HTTPException(status_code=403, detail=f"Access denied for analysis {aid}")
                 
-            if user.role in ["lgu_engineer", "admin"] and data["created_by"] is None:
-                pass # Legacy allowed for lgu/admin
-            elif data["created_by"] is None and user.role == "field_inspector":
-                raise HTTPException(status_code=403, detail=f"Access denied for analysis {aid}")
-                
             if data["status"] not in ["complete", "no_wires"]:
                 raise HTTPException(status_code=409, detail=f"Analysis {aid} is not complete")
                 
@@ -269,8 +272,7 @@ def export_geojson(payload: SummaryRequest, user: User = Depends(get_current_use
                 continue
             
             if user.role == "field_inspector" and data["created_by"] != user.id:
-                if data["created_by"] is not None:
-                    continue
+                raise HTTPException(status_code=403, detail=f"Access denied for analysis {aid}")
             
             if data["status"] not in ["complete", "no_wires"]:
                 continue
@@ -319,6 +321,14 @@ def export_geojson(payload: SummaryRequest, user: User = Depends(get_current_use
     finally:
         conn.close()
 
+def sanitize_csv_cell(val: Any) -> Any:
+    if val is None:
+        return ""
+    s = str(val)
+    if s and s[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return f"'{s}"
+    return s
+
 @router.post("/reports/csv", dependencies=[Depends(verify_csrf)])
 def export_csv(payload: SummaryRequest, user: User = Depends(get_current_user)):
     if len(payload.analysis_ids) > 100:
@@ -334,8 +344,7 @@ def export_csv(payload: SummaryRequest, user: User = Depends(get_current_user)):
                 continue
                 
             if user.role == "field_inspector" and data["created_by"] != user.id:
-                if data["created_by"] is not None:
-                    continue
+                raise HTTPException(status_code=403, detail=f"Access denied for analysis {aid}")
             
             if data["status"] not in ["complete", "no_wires"]:
                 continue
@@ -349,9 +358,11 @@ def export_csv(payload: SummaryRequest, user: User = Depends(get_current_user)):
             
             rows.append({
                 "id": data.get("id"),
-                "company": data.get("company"),
-                "barangay": data.get("barangay"),
-                "street": data.get("street"),
+                "filename": sanitize_csv_cell(data.get("filename")),
+                "company": sanitize_csv_cell(data.get("company")),
+                "barangay": sanitize_csv_cell(data.get("barangay")),
+                "street": sanitize_csv_cell(data.get("street")),
+                "notes": sanitize_csv_cell(data.get("notes")),
                 "status": data.get("status"),
                 "verdict": data.get("status"), # Mock verdict
                 "crs": data.get("max_crs"),

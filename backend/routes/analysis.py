@@ -31,6 +31,7 @@ from backend.auth import (
 from backend.database import get_connection
 from backend.services.sites import get_or_create_site, validate_location
 from backend.services.worker import enqueue_batch
+from backend.utils.uploads import generate_safe_filename
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -105,21 +106,23 @@ async def upload_image(
         
     # Content verification
     from PIL import Image, UnidentifiedImageError
+    from PIL.Image import DecompressionBombError
     try:
         img = Image.open(file.file)
         img.verify()
         file.file.seek(0)
+    except DecompressionBombError:
+        raise HTTPException(status_code=400, detail="Image exceeds decompression pixel limit")
     except (IOError, SyntaxError, UnidentifiedImageError) as e:
         import logging
         logging.getLogger(__name__).error(f"Invalid image content detected: {e}")
         raise HTTPException(status_code=400, detail="Corrupt image")
 
     Path("uploads").mkdir(exist_ok=True)
-    import re
-    # Sanitize filename to prevent path traversal
-    safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', os.path.basename(file.filename))
-    if not safe_name:
-        safe_name = "upload" + ext
+    try:
+        safe_name = generate_safe_filename(file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     out_path = os.path.join("uploads", safe_name)
 
     with open(out_path, "wb") as buffer:
@@ -215,7 +218,7 @@ async def upload_image(
             "guest_session", 
             guest_token, 
             httponly=True, 
-            secure=False, # TODO: Change to True before HTTPS deployment
+            secure=(req.url.scheme == "https"),
             samesite="lax",
             max_age=86400,
             path="/"
@@ -364,7 +367,7 @@ async def delete_analysis(analysis_id: int, user: User = Depends(get_current_use
 @router.get("/{analysis_id}/events", dependencies=[Depends(verify_csrf)])
 async def get_events(analysis_id: int, req: Request, user: User | None = Depends(get_optional_user)):
     conn = get_connection()
-    a = conn.execute("SELECT created_by, guest_session_id FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+    a = conn.execute("SELECT created_by, guest_session_id, is_public FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
     if not a:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
@@ -383,7 +386,7 @@ async def get_events(analysis_id: int, req: Request, user: User | None = Depends
 @router.get("/{analysis_id}/wires")
 async def get_wires(analysis_id: int, req: Request, user: User | None = Depends(get_optional_user)):
     conn = get_connection()
-    a = conn.execute("SELECT created_by, guest_session_id FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+    a = conn.execute("SELECT created_by, guest_session_id, is_public FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
     if not a:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
@@ -399,7 +402,7 @@ async def get_wires(analysis_id: int, req: Request, user: User | None = Depends(
 
 def serve_image(analysis_id: int, column: str, user: User | None, req: Request):
     conn = get_connection()
-    a = conn.execute(f"SELECT {column}, created_by, guest_session_id FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+    a = conn.execute(f"SELECT {column}, created_by, guest_session_id, is_public FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
     conn.close()
     
     if not a:
@@ -427,7 +430,7 @@ async def get_original(analysis_id: int, req: Request, user: User | None = Depen
     # original_path wasn't explicitly populated in the old pipeline, but if it is, serve it.
     # We can fallback to 'uploads/' + filename
     conn = get_connection()
-    a = conn.execute("SELECT filename, created_by FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+    a = conn.execute("SELECT filename, created_by, guest_session_id, is_public FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
     conn.close()
     
     if not a:

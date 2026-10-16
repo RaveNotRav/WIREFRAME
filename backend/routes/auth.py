@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from backend.auth import (
     User,
     check_rate_limit,
+    clear_rate_limit,
     create_session,
     get_current_user,
     hash_password,
@@ -36,6 +37,8 @@ async def login(req: Request, res: Response, payload: LoginRequest):
         if not valid or not user or not user["active"]:
             raise HTTPException(status_code=401, detail="Invalid username or password")
             
+        clear_rate_limit(req, "login", payload.username)
+
         # Clear existing expired sessions
         conn.execute("DELETE FROM sessions WHERE expires_at < datetime('now') OR user_id = ?", (user["id"],))
         

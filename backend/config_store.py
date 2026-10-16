@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 _cache: dict[str, Any] = {}
 _conn: sqlite3.Connection | None = None
 
+NO_WIRES_ACTION_TEXT = "No wires were detected in this image. This is not a clearance or safety certification. Retake the photo if wires are visible."
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     # PROVISIONAL: values must be recalibrated against measured sag_to_span field data with adviser agreement
     "crs_params": {
@@ -71,7 +73,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "high": "Schedule maintenance soon to resolve clearance or sag issues.",
         "critical": "Immediate dispatch required. Clear hazard present.",
         "neutral": "Review data. Unable to confidently clear site.",
-        "no_wires": "No wires detected. Site clear."
+        "no_wires": NO_WIRES_ACTION_TEXT
     }
 }
 

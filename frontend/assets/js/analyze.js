@@ -414,9 +414,9 @@ function renderBatchTabs() {
         if (['error', 'rejected', 'interrupted'].includes(item.status)) indicatorColor = 'var(--risk-critical)';
         
         btn.innerHTML = `
-            <img src="${item.thumb}" style="width:24px; height:24px; object-fit:cover; border-radius:4px;">
+            <img src="${escapeHtml(item.thumb)}" style="width:24px; height:24px; object-fit:cover; border-radius:4px;" alt="Thumbnail">
             <span style="flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.name)}</span>
-            <span style="width:10px; height:10px; border-radius:50%; background-color:${indicatorColor};" title="${item.status}"></span>
+            <span style="width:10px; height:10px; border-radius:50%; background-color:${indicatorColor};" title="${escapeHtml(item.status)}"></span>
         `;
         
         btn.addEventListener('click', () => switchTab(i));

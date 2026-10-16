@@ -1,6 +1,7 @@
 import logging
 import os
 import queue
+import sqlite3
 import threading
 
 from backend import main_state
@@ -56,6 +57,10 @@ def _batch_worker():
                 logger.error(f"Batch worker exception for batch {batch_id} (error_id: {error_id}): {e}\n{traceback.format_exc()}")
                 try:
                     conn = get_connection()
+                    conn.execute(
+                        "UPDATE analyses SET status = 'error', summary = ? WHERE batch_id = ? AND status IN ('queued', 'processing')",
+                        (f"Batch worker exception (error_id: {error_id})", batch_id)
+                    )
                     conn.execute("UPDATE batches SET status = 'error', finished_at = datetime('now') WHERE id = ?", (batch_id,))
                     conn.commit()
                     conn.close()

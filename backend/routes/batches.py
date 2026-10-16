@@ -14,6 +14,7 @@ from fastapi import (
     UploadFile,
 )
 from PIL import Image
+from PIL.Image import DecompressionBombError
 
 from backend import main_state
 from backend.auth import User, check_rate_limit, get_current_user, verify_csrf, get_optional_user, check_anon_rate_limit, _hash_token, verify_analysis_access
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/api/batches", tags=["batches"])
 
 from backend.services.sites import get_or_create_site, validate_location
 from backend.services.worker import enqueue_batch
+from backend.utils.uploads import generate_safe_filename
 
 
 @router.post("", dependencies=[Depends(verify_csrf)])
@@ -53,6 +55,17 @@ async def create_batch(
     
     if not files:
         raise HTTPException(status_code=400, detail="Empty batch")
+    if len(files) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 files allowed per batch")
+
+    # Limit total batch size to 60MB
+    total_size = 0
+    for f in files:
+        f.file.seek(0, 2)
+        total_size += f.file.tell()
+        f.file.seek(0)
+    if total_size > 60 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Batch exceeds maximum size of 60MB")
 
     # Parse GPS
     lat_val = None
@@ -93,7 +106,11 @@ async def create_batch(
             if size > 15 * 1024 * 1024:
                 raise HTTPException(status_code=400, detail=f"File too large: {f.filename}")
                 
-            safe_name = f.filename.replace(" ", "_")
+            try:
+                safe_name = generate_safe_filename(f.filename)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
             out_path = os.path.join("uploads", safe_name)
             
             with open(out_path, "wb") as buffer:
@@ -112,6 +129,10 @@ async def create_batch(
                     if not thumb_name.lower().endswith(('.jpg', '.jpeg')):
                         thumb_name = os.path.splitext(thumb_name)[0] + ".jpg"
                     img.save(os.path.join("uploads", thumb_name), "JPEG", quality=85)
+            except DecompressionBombError:
+                if os.path.exists(out_path):
+                    os.remove(out_path)
+                raise HTTPException(status_code=400, detail=f"Image exceeds decompression pixel limit: {f.filename}")
             except Exception:
                 if os.path.exists(out_path):
                     os.remove(out_path)
@@ -143,7 +164,7 @@ async def create_batch(
     from fastapi.responses import JSONResponse
     resp_obj = JSONResponse(content={"batch_id": batch_id, "status": "queued", "items_count": len(saved_files)})
     if guest_session_id and guest_token:
-        resp_obj.set_cookie(key="guest_session", value=guest_token, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
+        resp_obj.set_cookie(key="guest_session", value=guest_token, httponly=True, secure=(req.url.scheme == "https"), samesite="lax", max_age=86400, path="/")
     return resp_obj
 
 

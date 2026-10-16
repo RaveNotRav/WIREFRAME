@@ -150,9 +150,12 @@ def verify_csrf(request: Request):
         return
         
     origin = request.headers.get("origin")
-    if origin:
-        # Simple validation, a real app would check against allowed origins
-        return
+    host = request.headers.get("host")
+    if origin and host:
+        from urllib.parse import urlparse
+        origin_netloc = urlparse(origin).netloc
+        if origin_netloc == host:
+            return
         
     raise HTTPException(status_code=403, detail="CSRF check failed")
 
@@ -162,7 +165,7 @@ _rate_limit_lock = threading.Lock()
 _rate_limits = {}
 
 def check_rate_limit(request: Request, action: str, username: str = "", limit: int = 5, window: int = 900):
-    ip = request.client.host
+    ip = request.client.host if request.client else "127.0.0.1"
     if os.environ.get("TRUSTED_PROXY") == "1":
         ip = request.headers.get("X-Forwarded-For", ip).split(",")[0].strip()
         
@@ -185,6 +188,20 @@ def check_rate_limit(request: Request, action: str, username: str = "", limit: i
             
         history.append(now)
         _rate_limits[key] = history
+
+def clear_rate_limit(request: Request | None = None, action: str = "", username: str = "", ip: str | None = None):
+    if not ip and request and hasattr(request, "client") and request.client:
+        ip = request.client.host
+        if os.environ.get("TRUSTED_PROXY") == "1":
+            ip = request.headers.get("X-Forwarded-For", ip).split(",")[0].strip()
+    with _rate_limit_lock:
+        if ip:
+            key = f"{action}:{ip}:{username}"
+            _rate_limits.pop(key, None)
+        else:
+            for k in list(_rate_limits.keys()):
+                if k.startswith(f"{action}:") and k.endswith(f":{username}"):
+                    _rate_limits.pop(k, None)
 
 def reset_rate_limits():
     with _rate_limit_lock:

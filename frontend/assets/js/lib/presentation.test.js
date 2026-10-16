@@ -7,7 +7,11 @@ describe('Unified presentation.js tests', () => {
         it('handles standard statuses and edge cases', () => {
             assert.equal(statusPresentation('complete').text, 'Complete');
             assert.equal(statusPresentation('rejected').text, 'Rejected');
-            assert.equal(statusPresentation('no_wires').text, 'No Wires');
+            const noWiresPres = statusPresentation('no_wires');
+            assert.equal(noWiresPres.text, 'No Wires');
+            assert.equal(noWiresPres.style, 'warning');
+            assert.notEqual(noWiresPres.icon, 'check');
+            assert.notEqual(noWiresPres.style, 'success');
             assert.equal(statusPresentation('error').text, 'Error');
             assert.equal(statusPresentation('queued').text, 'Queued');
             assert.equal(statusPresentation('processing').text, 'Processing');

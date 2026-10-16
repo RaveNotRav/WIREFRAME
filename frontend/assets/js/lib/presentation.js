@@ -38,7 +38,7 @@ export function statusPresentation(statusOrAnalysis, analysis) {
         reason = formatRejectionReason(sum);
         label = 'Rejected: ' + sum; text = 'Rejected'; style = 'danger'; risk = 'critical'; icon = 'x'; cssClass = 'badge-rejected';
     } else if (s === 'no_wires') {
-        label = 'No Wires'; text = 'No Wires'; style = 'success'; risk = 'low'; icon = 'check'; cssClass = 'badge-no-wires'; reason = 'No wires were detected in the image.';
+        label = 'No Wires'; text = 'No Wires'; style = 'warning'; risk = 'neutral'; icon = 'alert'; cssClass = 'badge-no-wires'; reason = 'No wires were detected in the image.';
     } else if (s === 'error') {
         label = 'Error'; text = 'Error'; style = 'danger'; risk = 'critical'; icon = 'alert'; cssClass = 'badge-error'; reason = 'An error occurred during analysis.';
     } else if (s === 'interrupted') {

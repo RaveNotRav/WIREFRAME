@@ -1,5 +1,5 @@
 import { initTheme, toggleTheme } from './lib/theme.js';
-import { getSafetyPill, formatDbTimestamp, parseDbTimestamp } from './lib/formatters.js';
+import { getSafetyPill, formatDbTimestamp, parseDbTimestamp, escapeHtml } from './lib/formatters.js';
 
 function getRiskScorePill(score) {
     if (score === null || score === undefined) return '-';
@@ -284,7 +284,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Populate Accessible Table
             trendData.forEach(d => {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${d.date}</td><td>${d.count}</td><td>${d.avg_risk}</td>`;
+                tr.innerHTML = `<td>${escapeHtml(d.date)}</td><td>${escapeHtml(d.count)}</td><td>${escapeHtml(d.avg_risk)}</td>`;
                 tbody.appendChild(tr);
             });
         }
@@ -343,7 +343,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         trendData.forEach(d => {
             const x = getX(d.date);
             const y = getY(d.avg_risk);
-            pointsHtml += `<circle class="svg-trend-point" cx="${x}" cy="${y}" r="4" data-tooltip="${d.date}: ${d.avg_risk}" />`;
+            pointsHtml += `<circle class="svg-trend-point" cx="${x}" cy="${y}" r="4" data-tooltip="${escapeHtml(d.date)}: ${escapeHtml(d.avg_risk)}" />`;
         });
         
         const xTicksCount = 5;
@@ -353,7 +353,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const time = minDate + fraction * (maxDate - minDate);
             const dateStr = new Date(time + 8 * 3600 * 1000).toISOString().slice(0, 10);
             const x = padding.left + fraction * innerWidth;
-            xAxisHtml += `<text class="svg-axis-text" x="${x}" y="${height - 10}" text-anchor="middle">${dateStr.substring(5)}</text>`;
+            xAxisHtml += `<text class="svg-axis-text" x="${x}" y="${height - 10}" text-anchor="middle">${escapeHtml(dateStr.substring(5))}</text>`;
             xAxisHtml += `<line x1="${x}" y1="${padding.top + innerHeight}" x2="${x}" y2="${padding.top + innerHeight + 5}" stroke="var(--text-secondary)" />`;
         }
         
@@ -362,7 +362,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         for (let i=0; i<yTicksCount; i++) {
             const val = i * (100 / (yTicksCount - 1));
             const y = getY(val);
-            yAxisHtml += `<text class="svg-axis-text" x="${padding.left - 10}" y="${y + 4}" text-anchor="end">${Math.round(val)}</text>`;
+            yAxisHtml += `<text class="svg-axis-text" x="${padding.left - 10}" y="${y + 4}" text-anchor="end">${escapeHtml(Math.round(val))}</text>`;
             yAxisHtml += `<line x1="${padding.left - 5}" y1="${y}" x2="${padding.left}" y2="${y}" stroke="var(--text-secondary)" />`;
         }
 
@@ -421,19 +421,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             (data.data || []).forEach(item => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td>${item.id}</td>
+                    <td>${escapeHtml(item.id)}</td>
                     <td>${formatDbTimestamp(item.created_at, { includeTime: false })}</td>
-                    <td>${item.company || '-'}</td>
-                    <td>${item.site_name || item.street || '-'}</td>
-                    <td>${item.barangay || '-'}</td>
-                    <td>${item.status}</td>
+                    <td>${escapeHtml(item.company || '-')}</td>
+                    <td>${escapeHtml(item.site_name || item.street || '-')}</td>
+                    <td>${escapeHtml(item.barangay || '-')}</td>
+                    <td>${escapeHtml(item.status)}</td>
                     <td>${getRiskScorePill(item.risk_score)}</td>
                 `;
                 tbody.appendChild(tr);
             });
             
         } catch (e) {
-            tbody.innerHTML = `<tr><td colspan="7" style="color:var(--risk-critical);">${e.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="color:var(--risk-critical);">${escapeHtml(e.message)}</td></tr>`;
         }
     }
 });

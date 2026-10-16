@@ -70,6 +70,11 @@ input:-webkit-autofill:active {
 .neu-badge[data-risk="Caution"] svg circle { fill: var(--risk-moderate); }
 .neu-badge[data-risk="Unsafe"] svg circle { fill: var(--risk-high); }
 .neu-badge[data-risk="Critical"] svg circle { fill: var(--risk-critical); }
+.neu-badge[data-risk="neutral"] svg circle { fill: var(--color-warning); }
+
+.badge-no-wires {
+    color: var(--color-warning);
+}
 
 /* Dropzone */
 .neu-dropzone {

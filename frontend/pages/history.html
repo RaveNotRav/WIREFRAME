@@ -128,7 +128,7 @@
         import { fetchApi, showToast } from '/assets/js/main.js';
         import { initTheme, toggleTheme } from '/assets/js/lib/theme.js';
         import { loadHistoryData } from '/assets/js/loaders.js';
-        import { formatDbTimestamp } from '/assets/js/lib/formatters.js';
+        import { formatDbTimestamp, escapeHtml } from '/assets/js/lib/formatters.js';
 
         let currentPage = 1;
         let totalPages = 1;
@@ -362,7 +362,7 @@
                 document.getElementById('btn-next').disabled = page >= totalPages;
             } catch (e) {
                 console.error(e);
-                grid.innerHTML = `<div style="color: var(--color-error)">${e.message}</div>`;
+                grid.innerHTML = `<div style="color: var(--color-error)">${escapeHtml(e.message)}</div>`;
             } finally {
                 loading.style.display = 'none';
                 grid.style.display = 'grid';
@@ -402,20 +402,20 @@
                     <div style="position: absolute; top: 10px; left: 10px; z-index: 10;">
                         <input type="checkbox" class="item-checkbox" value="${item.id}" ${isComplete ? '' : 'disabled'}>
                     </div>
-                    <img src="${thumbSrc}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiM0NDQiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZmlsbD0iI2FhYSIgZGltaW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gVGh1bWJuYWlsPC90ZXh0Pjwvc3ZnPg=='" alt="Thumbnail">
+                    <img src="${thumbSrc ? escapeHtml(thumbSrc) : ''}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiM0NDQiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZmlsbD0iI2FhYSIgZGltaW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gVGh1bWJuYWlsPC90ZXh0Pjwvc3ZnPg=='" alt="${escapeHtml(item.filename || 'Thumbnail')}">
                     <div class="gallery-item-info">
-                        <div class="gallery-item-title">${item.filename || 'Unknown'}</div>
+                        <div class="gallery-item-title">${escapeHtml(item.filename || 'Unknown')}</div>
                         <div class="gallery-item-meta">
-                            <span>Status: ${item.status}</span>
+                            <span>Status: ${escapeHtml(item.status)}</span>
                             <span>ID: ${item.id}</span>
                         </div>
                         <div class="gallery-item-meta">
-                            <span>Company: ${item.company || '-'}</span>
+                            <span>Company: ${escapeHtml(item.company || '-')}</span>
                         </div>
                         <div class="gallery-item-meta">
-                            <span>Loc: ${item.barangay || '-'} / ${item.street || '-'}</span>
+                            <span>Loc: ${escapeHtml(item.barangay || '-')} / ${escapeHtml(item.street || '-')}</span>
                         </div>
-                        ${item.notes ? `<div class="gallery-item-meta" style="margin-top: 4px; font-style: italic; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.notes.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}">Notes: ${item.notes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>` : ''}
+                        ${item.notes ? `<div class="gallery-item-meta" style="margin-top: 4px; font-style: italic; font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.notes)}">Notes: ${escapeHtml(item.notes)}</div>` : ''}
                         <div class="gallery-item-meta">
                             <span>${dateStr}</span>
                         </div>

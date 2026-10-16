@@ -5,20 +5,28 @@ import { getNaturalCoordinates } from './coordinates.js';
 import { escapeHtml, formatConfidence, getWireClassColor, parseDbTimestamp, formatDbTimestamp } from './formatters.js';
 
 test('escapeHtml handles strings correctly', () => {
-    // Mock document
-    global.document = {
-        createElement: () => ({
-            appendChild: () => {},
-            set textContent(val) { this._val = val; },
-            get innerHTML() { 
-                return this._val.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); 
-            }
-        })
-    };
+    // XSS payload
+    assert.strictEqual(escapeHtml('<script>alert("xss")</script>'), '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
     
-    assert.strictEqual(escapeHtml('<script>alert(1)</script>'), '&lt;script&gt;alert(1)&lt;/script&gt;');
+    // Quotes (both double and single)
+    assert.strictEqual(escapeHtml(`"hello" and 'world'`), '&quot;hello&quot; and &#39;world&#39;');
+    
+    // Null and undefined
     assert.strictEqual(escapeHtml(null), '');
     assert.strictEqual(escapeHtml(undefined), '');
+    
+    // Numbers
+    assert.strictEqual(escapeHtml(123), '123');
+    assert.strictEqual(escapeHtml(0), '0');
+    assert.strictEqual(escapeHtml(-45.67), '-45.67');
+    
+    // Booleans
+    assert.strictEqual(escapeHtml(true), 'true');
+    assert.strictEqual(escapeHtml(false), 'false');
+    
+    // Normal strings and ampersand
+    assert.strictEqual(escapeHtml('Hello World'), 'Hello World');
+    assert.strictEqual(escapeHtml('Salt & Pepper'), 'Salt &amp; Pepper');
 });
 
 test('formatConfidence formats correctly', () => {
