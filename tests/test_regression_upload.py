@@ -17,12 +17,12 @@ def setup_test_auth(client):
 def wait_for_terminal_status(client, analysis_id, timeout=10):
     start = time.time()
     while time.time() - start < timeout:
-        res = client.get("/api/analysis")
+        res = client.get("/api/analysis?include_invalid=true")
         if res.status_code == 200:
             data = res.json().get("data", [])
             for item in data:
                 if item["id"] == analysis_id:
-                    if item["status"] in ("complete", "rejected", "failed"):
+                    if item["status"] in ("complete", "rejected", "failed", "no_wires"):
                         return item
         time.sleep(0.5)
     raise Exception(f"Timeout waiting for terminal status of {analysis_id}")

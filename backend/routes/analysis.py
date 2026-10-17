@@ -10,6 +10,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     Response,
     UploadFile,
@@ -239,6 +240,7 @@ async def get_analyses(
     street: str = None,
     sort_by: str = "created_at",
     sort_dir: str = "desc",
+    include_invalid: bool = Query(False, description="Include rejected and no_wires submissions"),
     user: User = Depends(get_current_user)
 ):
     conn = get_connection()
@@ -263,9 +265,20 @@ async def get_analyses(
                 conds.append("is_public = ?")
                 params.append(is_public)
             
-        if status:
-            conds.append("status = ?")
-            params.append(status)
+        allow_invalid = include_invalid and (user.role in ("admin", "lgu_engineer"))
+        if not allow_invalid:
+            if status:
+                if status in ("rejected", "no_wires"):
+                    conds.append("1 = 0")
+                else:
+                    conds.append("status = ?")
+                    params.append(status)
+            else:
+                conds.append("status NOT IN ('rejected', 'no_wires')")
+        else:
+            if status:
+                conds.append("status = ?")
+                params.append(status)
             
         if is_mock is not None:
             conds.append("is_mock = ?")

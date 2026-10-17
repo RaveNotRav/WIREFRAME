@@ -16,6 +16,7 @@ async def get_dashboard_stats(
     conn = get_connection()
     try:
         # Check if we need to filter by mock
+        # Stats never count rejected or no_wires; all queries filter strictly on status = 'complete'
         mock_clause = ""
         if not include_mock:
             mock_clause = "AND is_mock = 0"
