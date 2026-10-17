@@ -67,6 +67,10 @@
     </style>
 </head>
 <body class="neu-app">
+    <div class="desktop-only-notice" id="desktop-notice" role="alert">
+        <span class="notice-text">This page is designed for desktop. For the best experience, use a computer.</span>
+        <button type="button" class="notice-dismiss-btn" aria-label="Dismiss desktop notice">&times;</button>
+    </div>
     
     <header class="neu-header">
         <a href="/" class="neu-header-logo" style="display: flex; align-items: center; gap: 12px;"><img src="/assets/img/logo-icon.png" alt="Logo Icon" style="height: 48px; object-fit: contain;"><img src="/assets/img/logo-text.png" alt="WIREFRAME" style="height: 30px; object-fit: contain;"></a>
@@ -476,6 +480,9 @@
                 cb.addEventListener('change', updateSummaryButtonState);
             });
         }
+        document.querySelector('.notice-dismiss-btn')?.addEventListener('click', () => {
+            document.getElementById('desktop-notice')?.remove();
+        });
     </script>
 </body>
 </html>

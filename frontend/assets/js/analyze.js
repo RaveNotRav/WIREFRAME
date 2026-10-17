@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTheme();
     document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
     document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
+    document.getElementById('mobile-btn-logout')?.addEventListener('click', handleLogout);
     
     await loadUser();
     await loadSettings();
@@ -108,21 +109,32 @@ async function loadUser() {
             currentUser = null;
             document.getElementById('user-name').textContent = 'Public User';
             document.getElementById('user-role').textContent = 'Guest';
+            if (document.getElementById('btn-logout')) {
+                document.getElementById('btn-logout').style.display = 'none';
+            }
+            document.querySelectorAll('.auth-only-nav').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.guest-only-nav').forEach(el => el.style.display = '');
             return;
         }
         currentUser = await res.json();
         document.getElementById('user-name').textContent = currentUser.username;
         document.getElementById('user-role').textContent = currentUser.role;
-        // Show auth-only links
+        // Show auth-only links, hide guest-only links
         if (document.getElementById('btn-logout')) {
             document.getElementById('btn-logout').style.display = '';
         }
         document.querySelectorAll('.auth-only-nav').forEach(el => el.style.display = '');
+        document.querySelectorAll('.guest-only-nav').forEach(el => el.style.display = 'none');
     } catch (e) {
         console.warn(e.message);
         currentUser = null;
         document.getElementById('user-name').textContent = 'Guest';
         document.getElementById('user-role').textContent = 'Unknown';
+        if (document.getElementById('btn-logout')) {
+            document.getElementById('btn-logout').style.display = 'none';
+        }
+        document.querySelectorAll('.auth-only-nav').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.guest-only-nav').forEach(el => el.style.display = '');
     } finally {
         updateCalibrationButtonVisibility();
     }

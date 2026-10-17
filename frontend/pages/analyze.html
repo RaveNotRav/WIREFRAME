@@ -371,19 +371,127 @@
             border: 1px solid var(--surface-instrument-border-subtle);
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
         }
+
+        /* Responsive adjustments for phones and tablets (< 768px) */
+        @media (max-width: 767px) {
+            .global-stepper {
+                max-width: 100% !important;
+                padding: 0 12px !important;
+                margin-bottom: 20px !important;
+            }
+            .stepper-step span {
+                font-size: 0.8rem !important;
+            }
+
+            .neu-form-group {
+                margin-bottom: 16px;
+            }
+            #input-lat, #input-lng {
+                width: 100% !important;
+                min-width: 0 !important;
+            }
+            #btn-gps {
+                min-height: 44px;
+                min-width: 44px;
+            }
+
+            #tile-progress .bento-tile-header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 12px;
+            }
+            #tile-progress .bento-tile-header > div {
+                flex-direction: column;
+                align-items: stretch;
+                width: 100%;
+                gap: 8px;
+            }
+            #tile-progress .bento-tile-header #status-badge {
+                align-self: flex-start;
+            }
+            #btn-download-pdf,
+            #btn-cancel {
+                width: 100% !important;
+                min-height: 44px !important;
+                box-sizing: border-box;
+                justify-content: center;
+                text-align: center;
+            }
+
+            #tile-image #img-annotated {
+                width: 100% !important;
+                max-width: 100% !important;
+                max-height: 50vh !important;
+                height: auto !important;
+                object-fit: contain;
+                display: block;
+                box-sizing: border-box;
+            }
+
+            #analysis-metadata,
+            #status-reason {
+                overflow-wrap: break-word !important;
+                word-break: break-word !important;
+                box-sizing: border-box;
+            }
+
+            #wire-list > div {
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                box-sizing: border-box;
+                word-break: break-word;
+                overflow-wrap: break-word;
+            }
+            #wire-list > div > div:first-child {
+                min-width: 140px;
+                flex: 1 1 auto;
+            }
+            #wire-list > div > div:last-child {
+                text-align: left !important;
+                width: 100%;
+                border-top: 1px dashed var(--surface-instrument-border-subtle);
+                padding-top: 6px;
+                margin-top: 4px;
+            }
+
+            #mock-watermark,
+            .mock-watermark {
+                top: 60px !important;
+                right: 10px !important;
+                font-size: 0.72rem !important;
+                padding: 3px 8px !important;
+                border-radius: 4px !important;
+            }
+        }
     </style>
 </head>
-<body class="neu-app">
+<body class="neu-app analyze-page">
     
     <header class="neu-header">
         <a href="/" class="neu-header-logo" style="display: flex; align-items: center; gap: 12px;"><img src="/assets/img/logo-icon.png" alt="Logo Icon" style="height: 48px; object-fit: contain;"><img src="/assets/img/logo-text.png" alt="WIREFRAME" style="height: 30px; object-fit: contain;"></a>
         <div class="neu-header-nav">
-            <a href="/dashboard.html" class="neu-button neu-flat auth-only-nav" id="nav-dashboard" style="display: none;">Dashboard</a>
-            <a href="/analyze.html" class="neu-button neu-flat auth-only-nav" id="nav-analyze" style="display: none;">Analyze</a>
-            <a href="/history.html" class="neu-button neu-flat auth-only-nav" id="nav-history" style="display: none;">History</a>
+            <a href="/dashboard.html" class="neu-button neu-flat auth-only-nav desktop-nav-link" id="nav-dashboard" style="display: none;">Dashboard</a>
+            <a href="/analyze.html" class="neu-button neu-flat auth-only-nav desktop-nav-link" id="nav-analyze" style="display: none;">Analyze</a>
+            <a href="/history.html" class="neu-button neu-flat auth-only-nav desktop-nav-link" id="nav-history" style="display: none;">History</a>
             <span class="neu-header-userinfo"><span id="user-name">Loading...</span> (<span id="user-role" class="neu-header-role">...</span>)</span>
             <button class="neu-theme-toggle" id="theme-toggle" aria-label="Toggle theme"><svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path></svg></button>
-            <button class="neu-button neu-raised-sm" id="btn-logout" style="display: none;">Logout</button>
+            <button class="neu-button neu-raised-sm desktop-nav-link" id="btn-logout" style="display: none;">Logout</button>
+            <a href="/login.html" class="neu-button neu-raised-sm desktop-nav-link guest-only-nav" id="nav-login">Login</a>
+            <button class="neu-menu-toggle" id="menu-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="mobile-menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+        <div class="neu-mobile-menu" id="mobile-menu" role="menu">
+            <a href="/" id="mobile-nav-home">Home</a>
+            <a href="/analyze.html" id="mobile-nav-analyze">Analyze</a>
+            <a href="/login.html" class="guest-only-nav" id="mobile-nav-login">Login</a>
+            <a href="/dashboard.html" class="auth-only-nav" id="mobile-nav-dashboard" style="display: none;">Dashboard</a>
+            <a href="/history.html" class="auth-only-nav" id="mobile-nav-history" style="display: none;">History</a>
+            <button type="button" class="auth-only-nav" id="mobile-btn-logout" style="display: none;">Logout</button>
         </div>
     </header>
 
@@ -405,7 +513,7 @@
         </div>
     </div>
 
-    <main class="bento-grid" id="main-grid">
+    <main class="bento-grid analyze-grid" id="main-grid">
 
         
         <!-- Dropzone / Upload -->
@@ -656,5 +764,31 @@
     <div class="neu-toast-container" id="toast-container"></div>
 
     <script type="module" src="/assets/js/analyze.js"></script>
+    <script>
+        (function() {
+            const menuToggle = document.getElementById('menu-toggle');
+            const mobileMenu = document.getElementById('mobile-menu');
+            if (menuToggle && mobileMenu) {
+                menuToggle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isOpen = mobileMenu.classList.toggle('open');
+                    menuToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                });
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
+                        mobileMenu.classList.remove('open');
+                        menuToggle.setAttribute('aria-expanded', 'false');
+                        menuToggle.focus();
+                    }
+                });
+                document.addEventListener('click', (e) => {
+                    if (mobileMenu.classList.contains('open') && !mobileMenu.contains(e.target) && !menuToggle.contains(e.target)) {
+                        mobileMenu.classList.remove('open');
+                        menuToggle.setAttribute('aria-expanded', 'false');
+                    }
+                });
+            }
+        })();
+    </script>
 </body>
 </html>

@@ -80,11 +80,35 @@
     .bento-xl, .bento-xxl { grid-column: span 6; }
 }
 
-@media (max-width: 640px) {
+/* Tablet 2-column layout scoped to Analyze page only (768px - 1024px) */
+@media (min-width: 768px) and (max-width: 1024px) {
+    .analyze-page .bento-grid,
+    .bento-grid.analyze-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+        padding: 20px;
+    }
+    .analyze-page .bento-grid .bento-s,
+    .analyze-page .bento-grid .bento-m,
+    .bento-grid.analyze-grid .bento-s,
+    .bento-grid.analyze-grid .bento-m {
+        grid-column: span 1;
+    }
+    .analyze-page .bento-grid .bento-l,
+    .analyze-page .bento-grid .bento-xl,
+    .analyze-page .bento-grid .bento-xxl,
+    .bento-grid.analyze-grid .bento-l,
+    .bento-grid.analyze-grid .bento-xl,
+    .bento-grid.analyze-grid .bento-xxl {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 767px) {
     .bento-grid {
         grid-template-columns: 1fr;
         gap: 16px;
-        padding: 16px;
+        padding: 16px 12px;
     }
     .bento-s, .bento-m, .bento-l, .bento-xl, .bento-xxl {
         grid-column: span 1;
