@@ -203,7 +203,7 @@
     }
 
     .neu-mobile-menu.open {
-        display: flex;
+        display: flex !important;
     }
 
     .neu-mobile-menu a,

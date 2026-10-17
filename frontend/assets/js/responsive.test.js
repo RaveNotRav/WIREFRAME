@@ -39,23 +39,69 @@ describe('Mobile Responsiveness CSS & HTML Breakpoints', () => {
         assert.match(compCss, /\.desktop-only-notice/i, 'Desktop-only notice styles must be present');
     });
 
-    it('index.html contains mobile menu markup, button, and responsive hero', () => {
+    it('index.html landing page has Login on desktop and none on phones (<768px)', () => {
         const indexHtml = fs.readFileSync(path.join(pagesDir, 'index.html'), 'utf8');
-        assert.match(indexHtml, /id="menu-toggle"/, 'index.html must have #menu-toggle');
-        assert.match(indexHtml, /id="mobile-menu"/, 'index.html must have #mobile-menu');
-        assert.match(indexHtml, /aria-expanded="false"/, '#menu-toggle must have aria-expanded attribute');
-        assert.match(indexHtml, /@media\s*\(\s*max-width\s*:\s*768px\s*\)/, 'index.html must have responsive media query');
+        const headerCss = fs.readFileSync(path.join(cssDir, 'global-header.css'), 'utf8');
+        // Landing has Login link with desktop-nav-link
+        assert.match(indexHtml, /class="[^"]*desktop-nav-link[^"]*"[^>]*id="nav-login"|id="nav-login"[^>]*class="[^"]*desktop-nav-link/, 'index.html must have #nav-login with desktop-nav-link');
+        // Landing has no hamburger menu on phones
+        assert.doesNotMatch(indexHtml, /id="menu-toggle"/, 'index.html must not contain hamburger #menu-toggle');
+        assert.doesNotMatch(indexHtml, /id="mobile-menu"/, 'index.html must not contain #mobile-menu');
+        // CSS hides desktop-nav-link on <768px
+        assert.match(headerCss, /@media\s*\(\s*max-width\s*:\s*767px\s*\)[\s\S]*\.desktop-nav-link\s*\{[^}]*display\s*:\s*none/i, 'global-header.css must hide desktop-nav-link on <768px');
     });
 
-    it('analyze.html contains mobile menu, responsive tiles, and popup markup', () => {
+    it('index.html landing CTA (.neu-button-lg) is full width and centered on phones (<768px)', () => {
+        const indexHtml = fs.readFileSync(path.join(pagesDir, 'index.html'), 'utf8');
+        assert.match(
+            indexHtml,
+            /@media\s*\(\s*max-width\s*:\s*768px\s*\)[\s\S]*?\.neu-button-lg\s*\{[^}]*width\s*:\s*100%[^}]*max-width\s*:\s*none[^}]*min-height\s*:\s*48px/i,
+            'Landing CTA .neu-button-lg must be width: 100%, max-width: none, and min-height: 48px on phones'
+        );
+        assert.match(
+            indexHtml,
+            /@media\s*\(\s*max-width\s*:\s*768px\s*\)[\s\S]*?\.neu-button-lg\s*\{[^}]*text-align\s*:\s*center/i,
+            'Landing CTA .neu-button-lg must center text inside the button on phones'
+        );
+    });
+
+    it('index.html landing page uses flex-column/svh on phones (<768px) and avoids overflowing 100vh + header height', () => {
+        const indexHtml = fs.readFileSync(path.join(pagesDir, 'index.html'), 'utf8');
+        const phoneMatch = indexHtml.match(/@media\s*\(\s*max-width\s*:\s*768px\s*\)\s*\{([\s\S]*?)\n\s*\}\s*@media/);
+        assert.ok(phoneMatch, 'Must define @media (max-width: 768px) section');
+        const phoneCss = phoneMatch[1];
+
+        // Uses flex-column layout with min-height svh/vh
+        assert.match(phoneCss, /display\s*:\s*flex;\s*flex-direction\s*:\s*column/i, 'Phone layout must use flex-direction: column');
+        assert.match(phoneCss, /min-height\s*:\s*100svh/i, 'Phone layout must declare min-height: 100svh');
+        assert.match(phoneCss, /\.hero-content\s*\{[^}]*flex\s*:\s*1/i, 'Hero content must take flex: 1 to fill remaining space');
+
+        // Background covers the screen with fixed positioning
+        assert.match(phoneCss, /(\.hero-background|\.hero-overlay)[^{]*\{[^}]*position\s*:\s*fixed/i, 'Hero background must use position: fixed on phones to prevent bottom cutoff');
+
+        // Does NOT combine height: 100vh or min-height: calc(100vh - ...) with header causing overflow
+        assert.doesNotMatch(phoneCss, /min-height\s*:\s*calc\([^)]*100vh/i, 'Must not use min-height: calc(... 100vh ...) which overflows with header');
+    });
+
+    it('analyze.html has no guest login, hides hamburger for guests, and keeps logged-in menu', () => {
         const analyzeHtml = fs.readFileSync(path.join(pagesDir, 'analyze.html'), 'utf8');
-        assert.match(analyzeHtml, /id="menu-toggle"/, 'analyze.html must have #menu-toggle');
-        assert.match(analyzeHtml, /id="mobile-menu"/, 'analyze.html must have #mobile-menu');
-        assert.match(analyzeHtml, /id="public-confirmation-modal"/, 'analyze.html must have #public-confirmation-modal');
-        assert.match(analyzeHtml, /@media\s*\(\s*max-width\s*:\s*767px\s*\)/, 'analyze.html must have responsive media query');
-        assert.match(analyzeHtml, /#btn-download-pdf/, 'analyze.html must style #btn-download-pdf');
-        assert.match(analyzeHtml, /class="[^"]*guest-only-nav[^"]*"[^>]*id="nav-login"|id="nav-login"[^>]*class="[^"]*guest-only-nav/, '#nav-login must have guest-only-nav class');
+        const analyzeJs = fs.readFileSync(path.join(process.cwd(), 'frontend/assets/js/analyze.js'), 'utf8');
+        
+        // No guest login link on analyze.html
+        assert.doesNotMatch(analyzeHtml, /id="nav-login"/, 'analyze.html must not have guest #nav-login');
+        assert.doesNotMatch(analyzeHtml, /id="mobile-nav-login"/, 'analyze.html must not have #mobile-nav-login');
+        assert.doesNotMatch(analyzeHtml, /id="mobile-nav-home"/, 'analyze.html must not have #mobile-nav-home');
+        assert.doesNotMatch(analyzeHtml, /id="mobile-nav-analyze"/, 'analyze.html must not have #mobile-nav-analyze');
+
+        // Hamburger and mobile menu are auth-only (hidden for guests by default)
+        assert.match(analyzeHtml, /class="[^"]*auth-only-nav[^"]*"[^>]*id="menu-toggle"|id="menu-toggle"[^>]*class="[^"]*auth-only-nav/, '#menu-toggle must have auth-only-nav class');
+        assert.match(analyzeHtml, /id="menu-toggle"[^>]*style="[^"]*display:\s*none|style="[^"]*display:\s*none[^"]*"[^>]*id="menu-toggle/, '#menu-toggle must start hidden');
+        assert.match(analyzeHtml, /class="[^"]*auth-only-nav[^"]*"[^>]*id="mobile-menu"|id="mobile-menu"[^>]*class="[^"]*auth-only-nav/, '#mobile-menu must have auth-only-nav class');
         assert.match(analyzeHtml, /id="mobile-btn-logout"/, '#mobile-menu must contain #mobile-btn-logout');
+
+        // analyze.js hides auth-only-nav for guests and shows for authenticated users
+        assert.match(analyzeJs, /document\.querySelectorAll\('\.auth-only-nav'\)\.forEach\(el => el\.style\.display = 'none'\)/, 'analyze.js must hide auth-only-nav for guests');
+        assert.match(analyzeJs, /document\.querySelectorAll\('\.auth-only-nav'\)\.forEach\(el => el\.style\.display = ''\)/, 'analyze.js must show auth-only-nav for logged-in users');
     });
 
     it('bento.css restores 6-col for max-width 1024px and scopes 2-col tablet rules to Analyze page', () => {

@@ -133,17 +133,40 @@
         }
         
         @media (max-width: 768px) {
-            body, html {
+            html {
+                height: 100%;
+            }
+            body {
+                min-height: 100vh;
+                min-height: 100svh;
+                display: flex;
+                flex-direction: column;
                 overflow-y: auto;
                 height: auto;
-                min-height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            .hero-background,
+            .hero-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                height: 100vh;
+                height: 100svh;
+            }
+            .neu-header {
+                flex-shrink: 0;
             }
             .hero-content {
-                padding: 0 20px;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
                 height: auto;
-                min-height: calc(100vh - 70px);
-                padding-top: 24px;
-                padding-bottom: 40px;
+                min-height: 0;
+                padding: 16px 20px 24px;
                 box-sizing: border-box;
             }
             .hero-title {
@@ -154,18 +177,23 @@
             .hero-tagline {
                 font-size: 1.05rem;
                 line-height: 1.5;
-                margin-bottom: 28px;
+                margin-bottom: 24px;
             }
             .neu-button-lg {
-                padding: 14px 36px;
+                padding: 14px 24px;
                 font-size: 1.1rem;
                 width: 100%;
-                max-width: 280px;
+                max-width: none;
+                min-height: 48px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
                 box-sizing: border-box;
             }
         }
 
-        @media (max-width: 640px), (max-height: 700px) {
+        @media (max-height: 700px) and (min-width: 769px) {
             body, html {
                 overflow-y: auto;
                 height: auto;
@@ -173,7 +201,7 @@
             }
             .hero-content {
                 height: auto;
-                min-height: calc(100vh - 70px);
+                min-height: calc(100vh - 80px);
                 padding-top: 20px;
                 padding-bottom: 36px;
                 box-sizing: border-box;
@@ -194,18 +222,7 @@
                     <path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path>
                 </svg>
             </button>
-            <a href="/login.html" class="neu-button neu-raised-sm desktop-nav-link" style="text-decoration: none; font-weight: bold; padding: 8px 16px; border-radius: var(--radius-pill);">Login</a>
-            <button class="neu-menu-toggle" id="menu-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="mobile-menu">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="3" y1="12" x2="21" y2="12"></line>
-                    <line x1="3" y1="6" x2="21" y2="6"></line>
-                    <line x1="3" y1="18" x2="21" y2="18"></line>
-                </svg>
-            </button>
-        </div>
-        <div class="neu-mobile-menu" id="mobile-menu" role="menu">
-            <a href="/analyze.html">Analyze</a>
-            <a href="/login.html">Login</a>
+            <a href="/login.html" class="neu-button neu-raised-sm desktop-nav-link" id="nav-login" style="text-decoration: none; font-weight: bold; padding: 8px 16px; border-radius: var(--radius-pill);">Login</a>
         </div>
     </header>
 
@@ -227,29 +244,6 @@
         const themeBtn = document.getElementById('theme-toggle');
         if (themeBtn) {
             themeBtn.addEventListener('click', toggleTheme);
-        }
-
-        const menuToggle = document.getElementById('menu-toggle');
-        const mobileMenu = document.getElementById('mobile-menu');
-        if (menuToggle && mobileMenu) {
-            menuToggle.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isOpen = mobileMenu.classList.toggle('open');
-                menuToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-            });
-            document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && mobileMenu.classList.contains('open')) {
-                    mobileMenu.classList.remove('open');
-                    menuToggle.setAttribute('aria-expanded', 'false');
-                    menuToggle.focus();
-                }
-            });
-            document.addEventListener('click', (e) => {
-                if (mobileMenu.classList.contains('open') && !mobileMenu.contains(e.target) && !menuToggle.contains(e.target)) {
-                    mobileMenu.classList.remove('open');
-                    menuToggle.setAttribute('aria-expanded', 'false');
-                }
-            });
         }
     </script>
 </body>

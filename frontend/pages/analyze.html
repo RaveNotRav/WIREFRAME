@@ -475,9 +475,8 @@
             <a href="/history.html" class="neu-button neu-flat auth-only-nav desktop-nav-link" id="nav-history" style="display: none;">History</a>
             <span class="neu-header-userinfo"><span id="user-name">Loading...</span> (<span id="user-role" class="neu-header-role">...</span>)</span>
             <button class="neu-theme-toggle" id="theme-toggle" aria-label="Toggle theme"><svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path></svg></button>
-            <button class="neu-button neu-raised-sm desktop-nav-link" id="btn-logout" style="display: none;">Logout</button>
-            <a href="/login.html" class="neu-button neu-raised-sm desktop-nav-link guest-only-nav" id="nav-login">Login</a>
-            <button class="neu-menu-toggle" id="menu-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="mobile-menu">
+            <button class="neu-button neu-raised-sm desktop-nav-link auth-only-nav" id="btn-logout" style="display: none;">Logout</button>
+            <button class="neu-menu-toggle auth-only-nav" id="menu-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="mobile-menu" style="display: none;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="3" y1="12" x2="21" y2="12"></line>
                     <line x1="3" y1="6" x2="21" y2="6"></line>
@@ -485,10 +484,7 @@
                 </svg>
             </button>
         </div>
-        <div class="neu-mobile-menu" id="mobile-menu" role="menu">
-            <a href="/" id="mobile-nav-home">Home</a>
-            <a href="/analyze.html" id="mobile-nav-analyze">Analyze</a>
-            <a href="/login.html" class="guest-only-nav" id="mobile-nav-login">Login</a>
+        <div class="neu-mobile-menu auth-only-nav" id="mobile-menu" role="menu" style="display: none;">
             <a href="/dashboard.html" class="auth-only-nav" id="mobile-nav-dashboard" style="display: none;">Dashboard</a>
             <a href="/history.html" class="auth-only-nav" id="mobile-nav-history" style="display: none;">History</a>
             <button type="button" class="auth-only-nav" id="mobile-btn-logout" style="display: none;">Logout</button>

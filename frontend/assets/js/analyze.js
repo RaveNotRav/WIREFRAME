@@ -113,18 +113,16 @@ async function loadUser() {
                 document.getElementById('btn-logout').style.display = 'none';
             }
             document.querySelectorAll('.auth-only-nav').forEach(el => el.style.display = 'none');
-            document.querySelectorAll('.guest-only-nav').forEach(el => el.style.display = '');
             return;
         }
         currentUser = await res.json();
         document.getElementById('user-name').textContent = currentUser.username;
         document.getElementById('user-role').textContent = currentUser.role;
-        // Show auth-only links, hide guest-only links
+        // Show auth-only links
         if (document.getElementById('btn-logout')) {
             document.getElementById('btn-logout').style.display = '';
         }
         document.querySelectorAll('.auth-only-nav').forEach(el => el.style.display = '');
-        document.querySelectorAll('.guest-only-nav').forEach(el => el.style.display = 'none');
     } catch (e) {
         console.warn(e.message);
         currentUser = null;
@@ -134,7 +132,6 @@ async function loadUser() {
             document.getElementById('btn-logout').style.display = 'none';
         }
         document.querySelectorAll('.auth-only-nav').forEach(el => el.style.display = 'none');
-        document.querySelectorAll('.guest-only-nav').forEach(el => el.style.display = '');
     } finally {
         updateCalibrationButtonVisibility();
     }
