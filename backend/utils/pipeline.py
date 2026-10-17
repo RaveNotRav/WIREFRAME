@@ -1,6 +1,7 @@
 """State Machine and Orchestrator for WIREFRAME CV Pipeline."""
 
 import enum
+import json
 import logging
 import sqlite3
 import traceback
@@ -23,6 +24,12 @@ from backend.utils.cv.preprocess import validate_and_preprocess
 from backend.utils.cv.segment import segment_image
 from backend.utils.cv.types import normalize_class_name
 from backend.utils.cv.vni import compute_vni
+from backend.utils.clearance_helpers import (
+    evaluate_wire,
+    get_lowest_y,
+    parse_params_json,
+    rollup_analysis_clearance,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -162,9 +169,9 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             if cline.is_valid:
                 cat = calculate_sag_metrics(cline.polyline)
                 w["catenary"] = cat
-                w["lowest_y"] = max([pt[1] for pt in cline.polyline])
+                w["lowest_y"] = get_lowest_y(cline.polyline)
                 w["centerline_json"] = str(cline.polyline)
-                w["params_json"] = str({"a": cat.fitted_a, "residual": cat.residual})
+                w["params_json"] = json.dumps({"a": cat.fitted_a, "residual": cat.residual})
                 analyzed_wires.append(w)
                 
         if check_cancel_requested(conn, batch_id):
@@ -189,39 +196,22 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             crs_weighted = max(0.0, min(100.0, crs_raw * cls_weight))
             max_crs = max(max_crs, crs_weighted)
             
-            clear_est = estimate_clearance(w["lowest_y"], pole_bbox, scale_res.meters_per_px, prep.original_shape[0])
-            
-            import json
-            params = eval(w["params_json"])
-            params["clearance_low_m"] = clear_est["clearance_low_m"]
-            params["clearance_high_m"] = clear_est["clearance_high_m"]
-            
-            pec_min = pec_min_map.get(cls_key, pec_min_map.get("default", 5.5))
-            clearance_status = compute_clearance_status(
-                clear_est["clearance_m"], clear_est["clearance_low_m"], clear_est["clearance_high_m"], pec_min
-            ) if clear_est["status"] != "unavailable" else "unavailable"
-            
-            est_str = f"Estimated clearance {clear_est['clearance_m']:.2f} m " \
-                      f"(range {clear_est['clearance_low_m']:.2f}-{clear_est['clearance_high_m']:.2f} m)" \
-                      if clear_est["status"] != "unavailable" else "Clearance unavailable."
-                      
-            band = compute_crs_band(crs_weighted)
-            safety = compute_safety_level(band, clearance_status, est_str)
-            
-            final_wires.append({
-                "class_name": w["class_name"],
-                "confidence": w["confidence"],
-                "sag_px": cat.sag_px,
-                "span_px": cat.span_px,
-                "crs": crs_weighted,
-                "band": band,
-                "sag_m": cat.sag_px * scale_res.meters_per_px if scale_res.meters_per_px else None,
-                "clearance_m": clear_est["clearance_m"],
-                "clearance_status": clearance_status,
-                "safety_level": safety["safety_level"],
-                "centerline_json": w["centerline_json"],
-                "params_json": json.dumps(params)
-            })
+            params = parse_params_json(w["params_json"])
+            ew = evaluate_wire(
+                class_name=w["class_name"],
+                confidence=w["confidence"],
+                sag_px=cat.sag_px,
+                span_px=cat.span_px,
+                crs_weighted=crs_weighted,
+                lowest_y=w["lowest_y"],
+                pole_bbox=pole_bbox,
+                meters_per_px=scale_res.meters_per_px,
+                image_height=prep.original_shape[0],
+                pec_min_map=pec_min_map,
+                params_dict=params,
+            )
+            ew["centerline_json"] = w["centerline_json"]
+            final_wires.append(ew)
             
         # Store wires
         for fw in final_wires:
@@ -278,47 +268,26 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         final_score = compute_risk_score(detection_risk, barangay_risk)
         
         # Roll up clearance and sag metrics
-        # clearance_ok encoding without a migration: 1 = ok, 0 = below, 2 = marginal, NULL = no clearance.
-        valid_clearances = [
-            fw for fw in final_wires
-            if fw.get("clearance_m") is not None and fw.get("clearance_status") in ("ok", "below", "marginal")
-        ]
-        
-        if valid_clearances:
-            lowest_wire = min(valid_clearances, key=lambda w: w["clearance_m"])
-            clearance_available = lowest_wire["clearance_m"]
-            status_str = lowest_wire.get("clearance_status")
-            if status_str == "ok":
-                clearance_ok = 1
-            elif status_str == "marginal":
-                clearance_ok = 2
-            elif status_str == "below":
-                clearance_ok = 0
-            else:
-                clearance_ok = None
-            cls_key = normalize_class_name(lowest_wire["class_name"])
-            pec_min_clearance_m = pec_min_map.get(cls_key, pec_min_map.get("default", 5.5))
-            
-            sags_m = [fw["sag_m"] for fw in final_wires if fw.get("sag_m") is not None]
-            sag_meters = max(sags_m) if sags_m else None
-            
+        margin_pct = get_setting("margin_of_error_pct", 20) / 100.0
+        clearance_rollup = rollup_analysis_clearance(final_wires, pec_min_map, margin_pct)
+
+        if clearance_rollup["clearance_available"] is not None:
             pole_heights_cfg = get_setting("pole_heights", [10.0]) or [10.0]
             assumed_pole_height_m = pole_heights_cfg[0] if isinstance(pole_heights_cfg, list) and pole_heights_cfg else 10.0
         else:
-            clearance_ok = None
-            clearance_available = None
-            pec_min_clearance_m = None
-            sag_meters = None
             assumed_pole_height_m = None
 
         conn.execute(
             """UPDATE analyses 
                SET status = 'complete', vni = ?, max_crs = ?, barangay_risk = ?, risk_score = ?, dead_wire_count = ?, spectrum_path = ?, annotated_path = ?,
-                   clearance_ok = ?, clearance_available = ?, pec_min_clearance_m = ?, sag_meters = ?, assumed_pole_height_m = ?
+                   clearance_ok = ?, clearance_available = ?, pec_min_clearance_m = ?, sag_meters = ?, assumed_pole_height_m = ?,
+                   width = ?, height = ?, pole_bbox_json = ?, margin_error_m = ?
                WHERE id = ?""",
             (
                 vni_res.vni, max_crs, barangay_risk, final_score, dead_wires, spectrum_path, annotated_path,
-                clearance_ok, clearance_available, pec_min_clearance_m, sag_meters, assumed_pole_height_m,
+                clearance_rollup["clearance_ok"], clearance_rollup["clearance_available"], clearance_rollup["pec_min_clearance_m"],
+                clearance_rollup["sag_meters"], assumed_pole_height_m,
+                prep.original_shape[1], prep.original_shape[0], json.dumps(pole_bbox) if pole_bbox else None, clearance_rollup["margin_error_m"],
                 analysis_id
             )
         )

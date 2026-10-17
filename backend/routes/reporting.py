@@ -66,16 +66,9 @@ def _get_analysis_data(conn, analysis_id: int):
     # Set safety level properly based on wires if complete
     safety_level = 'Unknown'
     if data['status'] == 'complete':
-        # logic from safety presentation
+        from backend.utils.clearance_helpers import determine_overall_safety
         w_safeties = [w['safety_level'] for w in data['wires']]
-        if 'Critical' in w_safeties:
-            safety_level = 'Critical'
-        elif 'Unsafe' in w_safeties:
-            safety_level = 'Unsafe'
-        elif 'Caution' in w_safeties:
-            safety_level = 'Caution'
-        elif len(data['wires']) > 0:
-            safety_level = 'Safe'
+        safety_level = determine_overall_safety(w_safeties)
             
     if data['status'] == 'no_wires':
         safety_level = 'No Wires Detected'
@@ -93,10 +86,11 @@ def _get_analysis_data(conn, analysis_id: int):
     
     data['reasons'] = reasons
     
+    margin_err = data.get('margin_error_m')
     data['config'] = {
         'pole_height_m': data.get('assumed_pole_height_m'),
         'pec_min': settings_dict.get('pec_min_clearance_by_class', {}).get('default', 5.5),
-        'margin': 0.5
+        'margin': margin_err if margin_err is not None else "Not available"
     }
     data['scale_source'] = "Manual Calibration" if data['calibrations'] else "Assumed Pole Height"
     

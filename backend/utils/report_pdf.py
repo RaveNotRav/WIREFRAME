@@ -194,7 +194,12 @@ def build_pdf(data: dict, output_path: str):
     
     # Config
     conf = data.get('config', {})
-    elements.append(Paragraph(f"<b>Config Snapshot:</b> Pole height: {safe_str(conf.get('pole_height_m'))}m | PEC Min: {safe_str(conf.get('pec_min'))}m | Margin: {safe_str(conf.get('margin'))}m", normal_style))
+    m_val = conf.get('margin')
+    if m_val is None or m_val == "Not available":
+        margin_str = "Not available"
+    else:
+        margin_str = f"{safe_str(m_val)}m"
+    elements.append(Paragraph(f"<b>Config Snapshot:</b> Pole height: {safe_str(conf.get('pole_height_m'))}m | PEC Min: {safe_str(conf.get('pec_min'))}m | Margin: {margin_str}", normal_style))
     elements.append(Paragraph(f"<b>Scale Source:</b> {safe_str(data.get('scale_source', 'Assumed'))}", normal_style))
     elements.append(Paragraph(f"<b>Model:</b> {safe_str(data.get('model_file', 'mock'))}", normal_style))
     elements.append(Spacer(1, 12))

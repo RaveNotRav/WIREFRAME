@@ -458,69 +458,220 @@ async def get_spectrum(analysis_id: int, req: Request, user: User | None = Depen
     return serve_image(analysis_id, "spectrum_path", user, req)
 
 
+import json
+import logging
+import math
 from pydantic import BaseModel
+
+from backend.config_store import get_setting
+from backend.utils.cv.types import normalize_class_name
+from backend.utils.clearance_helpers import (
+    determine_overall_safety,
+    evaluate_wire,
+    get_lowest_y,
+    parse_centerline_json,
+    parse_params_json,
+    rollup_analysis_clearance,
+)
+
+
+class Point(BaseModel):
+    x: float
+    y: float
 
 
 class CalibratePayload(BaseModel):
-    p1: list[float]
-    p2: list[float]
+    points: list[Point]
     real_length_m: float
-    # Can add more
+
 
 @router.post("/{analysis_id}/calibrate", dependencies=[Depends(verify_csrf)])
-async def calibrate_analysis(analysis_id: int, payload: CalibratePayload, req: Request, user: User | None = Depends(get_optional_user)):
+async def calibrate_analysis(
+    analysis_id: int,
+    payload: CalibratePayload,
+    req: Request,
+    user: User = Depends(get_current_user),
+):
+    # Validate payload values
+    if not math.isfinite(payload.real_length_m):
+        raise HTTPException(status_code=422, detail="Real length must be a finite number")
+    if payload.real_length_m < 0.1 or payload.real_length_m > 100.0:
+        raise HTTPException(status_code=422, detail="Real length must be between 0.1 and 100 meters")
+
+    if len(payload.points) != 2:
+        raise HTTPException(status_code=422, detail="Exactly 2 calibration points required")
+
+    p1, p2 = payload.points[0], payload.points[1]
+    if not (math.isfinite(p1.x) and math.isfinite(p1.y) and math.isfinite(p2.x) and math.isfinite(p2.y)):
+        raise HTTPException(status_code=422, detail="Points must have finite coordinates")
+
+    dx = p1.x - p2.x
+    dy = p1.y - p2.y
+    dist = math.hypot(dx, dy)
+    if dist < 10.0:
+        raise HTTPException(status_code=422, detail="Reference points distance must be at least 10 pixels")
+
     conn = get_connection()
-    a = conn.execute("SELECT status, created_by, guest_session_id, width, height FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
-    if not a:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Not found")
-        
-    if a["status"] != "complete":
-        conn.close()
-        raise HTTPException(status_code=400, detail="Analysis must be complete to calibrate")
-        
     try:
+        a = conn.execute(
+            """SELECT status, is_public, created_by, guest_session_id, width, height, pole_bbox_json,
+                      assumed_pole_height_m, sag_meters, clearance_available, clearance_ok, margin_error_m
+               FROM analyses WHERE id = ?""",
+            (analysis_id,),
+        ).fetchone()
+        if not a:
+            raise HTTPException(status_code=404, detail="Not found")
+
         verify_analysis_access(a, user, req)
-    except HTTPException as e:
-        conn.close()
-        raise e
-        
-    if payload.real_length_m <= 0 or payload.real_length_m > 1000:
-        conn.close()
-        raise HTTPException(status_code=422, detail="Invalid real length")
-        
-    w, h = a["width"], a["height"]
-    if w and h:
-        for p in [payload.p1, payload.p2]:
-            if p[0] < 0 or p[0] > w or p[1] < 0 or p[1] > h:
-                conn.close()
+
+        if a["status"] != "complete":
+            raise HTTPException(status_code=409, detail="Analysis must be complete to calibrate")
+
+        w, h = a["width"], a["height"]
+        if a["pole_bbox_json"] is None or w is None or h is None:
+            raise HTTPException(
+                status_code=409,
+                detail="This analysis has no stored ground reference; re-analyze the image to enable calibration.",
+            )
+
+        try:
+            pole_bbox = json.loads(a["pole_bbox_json"])
+            if not isinstance(pole_bbox, list) or len(pole_bbox) < 4:
+                raise ValueError()
+        except Exception:
+            raise HTTPException(
+                status_code=409,
+                detail="This analysis has no stored ground reference; re-analyze the image to enable calibration.",
+            )
+
+        for p in [p1, p2]:
+            if p.x < 0 or p.x > w or p.y < 0 or p.y > h:
                 raise HTTPException(status_code=422, detail="Points must be within image bounds")
 
-    # In a real implementation we would recompute using the math functions.
-    # For now, just save it to calibrations and return dummy updated values 
-    # to fulfill the endpoint contract in this mock phase.
-    try:
+        wires = conn.execute(
+            "SELECT * FROM wires WHERE analysis_id = ? ORDER BY id",
+            (analysis_id,),
+        ).fetchall()
+        if not wires:
+            raise HTTPException(status_code=409, detail="No wires found to calibrate")
+
+        meters_per_px = payload.real_length_m / dist
+
+        raw_pec = get_setting("pec_min_clearance_by_class", {}) or {}
+        pec_min_map = {normalize_class_name(k): v for k, v in raw_pec.items()}
+        margin_pct = get_setting("margin_of_error_pct", 20) / 100.0
+        pole_height = a["assumed_pole_height_m"] or 10.0
+        max_allowed_clearance = pole_height * 2.0
+
+        evaluated_wires = []
+        for wire_row in wires:
+            polyline = parse_centerline_json(wire_row["centerline_json"])
+            lowest_y = get_lowest_y(polyline)
+            params = parse_params_json(wire_row["params_json"])
+
+            ew = evaluate_wire(
+                class_name=wire_row["class_name"],
+                confidence=wire_row["confidence"] or 0.0,
+                sag_px=wire_row["sag_px"] or 0.0,
+                span_px=wire_row["span_px"] or 0.0,
+                crs_weighted=wire_row["crs"] or 0.0,
+                lowest_y=lowest_y,
+                pole_bbox=pole_bbox,
+                meters_per_px=meters_per_px,
+                image_height=h,
+                pec_min_map=pec_min_map,
+                params_dict=params,
+            )
+            # Plausibility check per wire
+            if ew["clearance_m"] is not None:
+                if ew["clearance_m"] < 0.0 or ew["clearance_m"] > max_allowed_clearance:
+                    raise HTTPException(status_code=422, detail="Calibration resulted in implausible clearance")
+            ew["id"] = wire_row["id"]
+            evaluated_wires.append(ew)
+
+        rollup = rollup_analysis_clearance(evaluated_wires, pec_min_map, margin_pct)
+        if rollup["clearance_available"] is not None:
+            if rollup["clearance_available"] < 0.0 or rollup["clearance_available"] > max_allowed_clearance:
+                raise HTTPException(status_code=422, detail="Calibration resulted in implausible clearance")
+
+        overall_safety = determine_overall_safety([ew["safety_level"] for ew in evaluated_wires])
+
+        # Audit payload with previous values
+        previous_state = {
+            "sag_meters": a["sag_meters"],
+            "clearance_available": a["clearance_available"],
+            "clearance_ok": a["clearance_ok"],
+            "margin_error_m": a["margin_error_m"],
+            "wires": [
+                {
+                    "id": w["id"],
+                    "sag_m": w["sag_m"],
+                    "clearance_m": w["clearance_m"],
+                    "clearance_status": w["clearance_status"],
+                    "safety_level": w["safety_level"],
+                    "params_json": w["params_json"],
+                }
+                for w in wires
+            ],
+        }
+        payload_audit = {
+            "points": [{"x": p.x, "y": p.y} for p in payload.points],
+            "real_length_m": payload.real_length_m,
+            "meters_per_px": meters_per_px,
+            "previous_state": previous_state,
+        }
+
+        # Single transaction for database modifications
         conn.execute(
             """INSERT INTO calibrations (analysis_id, created_by, payload_json, sag_m, clearance_m, safety_level) 
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (analysis_id, user.id if user else None, payload.model_dump_json(), 0.5, 5.0, "Safe")
+            (analysis_id, user.id, json.dumps(payload_audit), rollup["sag_meters"], rollup["clearance_available"], overall_safety),
         )
-        
-        # Invalidate report cache
-        rep = conn.execute("SELECT path FROM reports WHERE analysis_id = ?", (analysis_id,)).fetchone()
-        if rep and rep["path"]:
-            rep_path = Path(rep["path"]).resolve()
-            out_path = Path("outputs").resolve()
-            if str(rep_path).startswith(str(out_path)) and os.path.exists(str(rep_path)):
-                try:
-                    os.remove(str(rep_path))
-                except OSError as e:
-                    import logging
-                    logging.getLogger(__name__).warning(f"Failed to delete report {rep_path}: {e}")
+
+        for ew in evaluated_wires:
+            conn.execute(
+                """UPDATE wires
+                   SET sag_m = ?, clearance_m = ?, clearance_status = ?, safety_level = ?, params_json = ?
+                   WHERE id = ?""",
+                (ew["sag_m"], ew["clearance_m"], ew["clearance_status"], ew["safety_level"], ew["params_json"], ew["id"]),
+            )
+
+        conn.execute(
+            """UPDATE analyses
+               SET sag_meters = ?, clearance_available = ?, clearance_ok = ?, pec_min_clearance_m = ?, margin_error_m = ?
+               WHERE id = ?""",
+            (
+                rollup["sag_meters"],
+                rollup["clearance_available"],
+                rollup["clearance_ok"],
+                rollup["pec_min_clearance_m"],
+                rollup["margin_error_m"],
+                analysis_id,
+            ),
+        )
+
+        reports_to_delete = conn.execute("SELECT path FROM reports WHERE analysis_id = ?", (analysis_id,)).fetchall()
         conn.execute("DELETE FROM reports WHERE analysis_id = ?", (analysis_id,))
-        
+
         conn.commit()
+
+        # Invalidate report cache files safely post-commit
+        base_outputs = Path("outputs").resolve()
+        for rep in reports_to_delete:
+            if rep["path"]:
+                rep_path = Path(rep["path"]).resolve()
+                if rep_path.is_relative_to(base_outputs) and rep_path.exists():
+                    try:
+                        rep_path.unlink()
+                    except OSError as e:
+                        logging.getLogger(__name__).warning("Failed to delete report %s: %s", rep_path, e)
+
+        return {
+            "status": "success",
+            "sag_m": rollup["sag_meters"],
+            "clearance_m": rollup["clearance_available"],
+            "safety_level": overall_safety,
+            "margin_error_m": rollup["margin_error_m"],
+        }
     finally:
         conn.close()
-        
-    return {"status": "success", "sag_m": 0.5, "clearance_m": 5.0, "safety_level": "Safe"}

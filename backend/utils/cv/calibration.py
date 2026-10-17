@@ -91,7 +91,13 @@ def estimate_clearance(
     # In image coords, y goes down. So ground_y > lowest_wire_y
     if lowest_wire_y > ground_y:
         logger.warning(f"Wire ({lowest_wire_y}) is below ground reference ({ground_y})!")
-        clearance_px = 0.0
+        return {
+            "clearance_m": None,
+            "clearance_low_m": None,
+            "clearance_high_m": None,
+            "status": "unavailable",
+            "reason": "wire below ground reference (invalid geometry)",
+        }
     else:
         clearance_px = ground_y - lowest_wire_y
         

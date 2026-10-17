@@ -248,6 +248,11 @@ def _migrate_010_public_submissions(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE analyses ADD COLUMN guest_session_id TEXT")
     conn.execute("ALTER TABLE analyses ADD COLUMN is_public INTEGER DEFAULT 0")
 
+
+def _migrate_011_ground_reference_and_margin(conn: sqlite3.Connection) -> None:
+    conn.execute("ALTER TABLE analyses ADD COLUMN pole_bbox_json TEXT")
+    conn.execute("ALTER TABLE analyses ADD COLUMN margin_error_m REAL")
+
 MIGRATIONS: list[tuple[int, str, callable]] = [
 
     (1, "create_base_tables", _migrate_001_base_tables),
@@ -260,6 +265,7 @@ MIGRATIONS: list[tuple[int, str, callable]] = [
     (8, "dashboard_indexes", _migrate_008_dashboard_indexes),
     (9, "analysis_notes", _migrate_009_analysis_notes),
     (10, "public_submissions", _migrate_010_public_submissions),
+    (11, "ground_reference_and_margin", _migrate_011_ground_reference_and_margin),
 ]
 
 

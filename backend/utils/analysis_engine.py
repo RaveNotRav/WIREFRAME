@@ -112,10 +112,7 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
     
     pec_min_map = get_setting("pec_min_clearance_by_class", {})
     
-    image_safety_level = "Safe"
-    image_safety_rank = -1
-    mapping = get_setting("safety_mapping")
-    rank_to_lvl = mapping["rank_to_level"]
+    image_safety_level = "Unknown"
     
     for wire in wires:
         lowest_y = wire.pop("lowest_y")
@@ -127,7 +124,8 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
         
         # Merge range into params
         import json
-        params = eval(wire["params_json"])
+        from backend.utils.clearance_helpers import parse_params_json
+        params = parse_params_json(wire["params_json"])
         params["clearance_low_m"] = clear_est["clearance_low_m"]
         params["clearance_high_m"] = clear_est["clearance_high_m"]
         wire["params_json"] = json.dumps(params)
@@ -146,16 +144,9 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
         wire["safety_level"] = safety["safety_level"]
         wire["safety_reasons"] = safety["reasons"]
         
-        # Track worst image safety
-        # Find reverse map
-        lvl_to_rank = {v: int(k) for k, v in rank_to_lvl.items()}
-        w_rank = lvl_to_rank.get(wire["safety_level"], -1)
-        if w_rank > image_safety_rank:
-            image_safety_rank = w_rank
-            image_safety_level = wire["safety_level"]
-            
-    if image_safety_rank == -1:
-        image_safety_level = "Unknown"
+    from backend.utils.clearance_helpers import determine_overall_safety
+    wire_safeties = [w["safety_level"] for w in wires if "safety_level" in w]
+    image_safety_level = determine_overall_safety(wire_safeties)
 
     # Calculate final scores
     detection_risk = compute_detection_risk(severities)

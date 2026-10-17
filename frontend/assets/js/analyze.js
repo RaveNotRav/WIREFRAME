@@ -7,6 +7,7 @@ import { escapeHtml, formatConfidence, getWireClassColor } from './lib/formatter
 import { statusPresentation, safetyPresentation, shouldShowPublicConfirmation, isTerminalStatus } from './lib/presentation.js';
 
 let currentUser = null;
+let currentAnalysis = null;
 let currentFiles = [];
 let fileThumbURLs = [];
 let batchItems = []; // { analysisId, fileObj, status }
@@ -15,6 +16,12 @@ let pollingTimers = {}; // id -> timer
 let actionMapping = {};
 let calPoints = []; // manual calibration points {x, y}
 let currentBatchId = null;
+
+function updateCalibrationButtonVisibility() {
+    const calBtn = document.getElementById('btn-calibrate');
+    if (!calBtn) return;
+    calBtn.style.display = (currentUser && currentAnalysis && currentAnalysis.status === 'complete') ? 'inline-block' : 'none';
+}
 
 const MAX_POLLING_CONCURRENCY = 2; // don't overwhelm server
 let activePollsCount = 0;
@@ -113,8 +120,11 @@ async function loadUser() {
         document.querySelectorAll('.auth-only-nav').forEach(el => el.style.display = '');
     } catch (e) {
         console.warn(e.message);
+        currentUser = null;
         document.getElementById('user-name').textContent = 'Guest';
         document.getElementById('user-role').textContent = 'Unknown';
+    } finally {
+        updateCalibrationButtonVisibility();
     }
 }
 
@@ -653,19 +663,25 @@ function updateCancelButton(status) {
 
 // ---- RENDERING RESULTS ----
 function resetResultTiles() {
+    currentAnalysis = null;
     const reasonEl = document.getElementById('status-reason');
     if (reasonEl) reasonEl.textContent = '';
     ['tile-image', 'tile-safety', 'tile-action', 'tile-crs', 'tile-sag', 'tile-vni', 'tile-wires', 'tile-disclosure'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
     });
+    updateCalibrationButtonVisibility();
 }
 
 function populateResultTiles(analysis) {
     if (analysis.status === 'rejected' || analysis.status === 'error') return;
 
+    currentAnalysis = analysis;
+
     // Show image regardless of wires (no_wires needs image)
     document.getElementById('tile-image').style.display = 'block';
+
+    updateCalibrationButtonVisibility();
     
     // Add timestamp query param to force reload if re-processed (e.g. calibration)
     const ts = new Date().getTime();
@@ -813,6 +829,10 @@ function setupCalibrationTool() {
     const focusableElementsString = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
     
     btnOpen.addEventListener('click', () => {
+        if (!currentUser) {
+            showToast('Authentication required for calibration.', 'error');
+            return;
+        }
         modal.classList.add('open');
         canvas.focus();
         
@@ -843,7 +863,7 @@ function setupCalibrationTool() {
             showToast('Invalid X/Y', 'error');
             return;
         }
-        if (calPoints.length >= 3) return;
+        if (calPoints.length >= 2) return;
         
         calPoints.push({ x: vx, y: vy });
         drawPoints();
@@ -871,7 +891,7 @@ function setupCalibrationTool() {
     });
 
     canvas.addEventListener('click', (e) => {
-        if (calPoints.length >= 3) return; // Allow max 3 points for sag
+        if (calPoints.length >= 2) return;
         
         const coords = getNaturalCoordinates(e, img, img.naturalWidth, img.naturalHeight, 'contain');
         calPoints.push(coords);
@@ -905,7 +925,7 @@ function setupCalibrationTool() {
         
         if (e.key === 'Enter') {
             e.preventDefault();
-            if (calPoints.length >= 3) return;
+            if (calPoints.length >= 2) return;
             // simulate click at crosshair
             const coords = getNaturalCoordinates({ clientX: crosshairPos.x + canvas.getBoundingClientRect().left, clientY: crosshairPos.y + canvas.getBoundingClientRect().top }, img, img.naturalWidth, img.naturalHeight, 'contain');
             calPoints.push(coords);
@@ -934,40 +954,38 @@ function setupCalibrationTool() {
             ctx.stroke();
         }
 
-        calPoints.forEach((p, i) => {
+        calPoints.forEach((p) => {
             const drawX = p.x * scale + offsetX;
             const drawY = p.y * scale + offsetY;
             
             ctx.beginPath();
             ctx.arc(drawX, drawY, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = i < 2 ? '#e74c3c' : '#3498db'; // red for ref, blue for sag point
+            ctx.fillStyle = '#e74c3c';
             ctx.fill();
             ctx.strokeStyle = '#fff';
             ctx.stroke();
         });
         
         if (calPoints.length === 2) {
-            ptsList.textContent = 'Scale reference points selected (2). Enter length and submit, or click a 3rd point to measure sag.';
-        } else if (calPoints.length === 3) {
-            ptsList.textContent = 'Scale + Sag points selected (3). Enter length and submit.';
+            ptsList.textContent = 'Scale reference points selected (2). Enter real length (meters) and click Calibrate.';
         } else {
-            ptsList.textContent = `Points selected: ${calPoints.length}`;
+            ptsList.textContent = `Points selected: ${calPoints.length} / 2`;
         }
     }
 
     btnSubmit.addEventListener('click', async () => {
         const len = parseFloat(document.getElementById('cal-length').value);
-        if (calPoints.length < 2) {
-            showToast('Please select at least 2 points.', 'error');
+        if (calPoints.length !== 2) {
+            showToast('Please select exactly 2 points.', 'error');
             return;
         }
-        if (isNaN(len) || len <= 0 || len >= 100) {
-            showToast('Please enter a valid length between 0.1 and 100.', 'error');
+        if (isNaN(len) || len < 0.1 || len > 100) {
+            showToast('Please enter a valid length between 0.1 and 100 meters.', 'error');
             return;
         }
 
         const payload = {
-            points: calPoints,
+            points: calPoints.slice(0, 2),
             real_length_m: len
         };
 
@@ -989,10 +1007,17 @@ function setupCalibrationTool() {
             // Re-fetch analysis to get updated tiles
             const analysisRes = await fetchApi(`/api/analysis/${activeId}/result`);
             const analysis = await analysisRes.json();
-            updateTilesFromJson(analysis);
+            populateResultTiles(analysis);
+
+            const ts = new Date().getTime();
+            const imgAnnotated = document.getElementById('img-annotated');
+            if (imgAnnotated) {
+                imgAnnotated.src = `/api/analysis/${activeId}/overlay?t=${ts}`;
+            }
             
             // Aria-live announcement
-            document.getElementById('status-reason').textContent = 'Calibration updated successfully. Results refreshed.';
+            const reasonEl = document.getElementById('status-reason');
+            if (reasonEl) reasonEl.textContent = 'Calibration updated successfully. Results refreshed.';
         } catch (e) {
             showToast('Calibration failed: ' + e.message, 'error');
         }

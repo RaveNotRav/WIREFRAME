@@ -141,10 +141,15 @@ def compute_safety_level(crs_band: str, clearance_status: str, clearance_estimat
         safety_level = "Unknown"
         reasons.append("Both CRS and clearance are unavailable. Cannot determine safety.")
     elif clearance_status == "unavailable":
-        # Caps based on CRS only
+        # Caps based on CRS only, but cannot confirm safe without clearance
         rank = crs_rank
-        safety_level = mapping["rank_to_level"].get(str(rank), "Unknown")
-        reasons.append("Clearance could not be estimated; verdict is based on CRS only.")
+        level = mapping["rank_to_level"].get(str(rank), "Unknown")
+        if level == "Safe":
+            safety_level = "Unknown"
+            reasons.append("Clearance could not be estimated; cannot confirm safe.")
+        else:
+            safety_level = level
+            reasons.append("Clearance could not be estimated; verdict is based on CRS only.")
         reasons.append(f"CRS band is {crs_band}.")
     elif crs_band == "unavailable":
         # Clearance alone caps at Unsafe (rank 2)

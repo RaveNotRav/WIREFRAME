@@ -95,6 +95,8 @@ async def create_batch(
         comp, brgy, st = validate_location(company, barangay, street)
         
         for f in files:
+            if not f.filename or not f.filename.strip():
+                raise HTTPException(status_code=400, detail="Missing or invalid filename")
             ext = os.path.splitext(f.filename)[1].lower()
             if ext not in [".jpg", ".jpeg", ".png"]:
                 raise HTTPException(status_code=400, detail=f"Invalid file type: {f.filename}")

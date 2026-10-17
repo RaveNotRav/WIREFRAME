@@ -97,10 +97,12 @@ def generate_mock_segmentation(image_path: str, original_shape: tuple[int, int])
         y_offset = int(h * (0.2 + i * 0.15))
         a = w / (sag_factor * 10.0) # Fake parameter
         
+        max_wire_y = int(h * 0.9 - 20) if has_pole else int(h - 20)
         pts = []
         for x in range(0, int(w * 0.8) if has_pole else w, 5):
             center_x = w * 0.4
-            y = int(a * np.cosh((x - center_x) / a) - a) + y_offset
+            raw_y = int(a * np.cosh((x - center_x) / a) - a) + y_offset
+            y = min(raw_y, max_wire_y)
             if y < h:
                 pts.append((x, y))
                 
