@@ -380,7 +380,8 @@ def build_summary_pdf(data: dict, output_path: str):
         ])
         
     if len(table_data) > 1:
-        t = Table(table_data, repeatRows=1)
+        col_widths = [0.35 * inch, 0.85 * inch, 1.3 * inch, 0.8 * inch, 0.55 * inch, 0.65 * inch, 0.8 * inch, 2.2 * inch]
+        t = Table(table_data, colWidths=col_widths, repeatRows=1)
         t.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
             ('INNERGRID', (0,0), (-1,-1), 0.25, colors.black),

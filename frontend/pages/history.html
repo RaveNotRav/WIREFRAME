@@ -101,6 +101,9 @@
                     <label class="neu-form-label" style="display: flex; gap: 5px; align-items: center; margin: 0; cursor: pointer;">
                         <input type="checkbox" id="toggle-mock" style="width: auto;" checked> Include Mock
                     </label>
+                    <label class="neu-form-label" id="toggle-invalid-label" style="display: none; gap: 5px; align-items: center; margin: 0; cursor: pointer;">
+                        <input type="checkbox" id="toggle-invalid" style="width: auto;"> Show invalid submissions
+                    </label>
                     <button class="neu-button neu-raised-sm" id="btn-generate-summary" disabled>Generate Summary PDF</button>
                     <button class="neu-button neu-raised-sm" id="btn-export-geojson" disabled>Export GeoJSON</button>
                     <button class="neu-button neu-raised-sm" id="btn-export-csv" disabled>Export CSV</button>
@@ -155,6 +158,12 @@
             if (user.role === 'admin') {
                 document.getElementById('btn-purge-mock').style.display = 'block';
             }
+            if (user.role === 'admin' || user.role === 'lgu_engineer') {
+                const invalidLabel = document.getElementById('toggle-invalid-label');
+                if (invalidLabel) {
+                    invalidLabel.style.display = 'flex';
+                }
+            }
         } catch (e) {
             // fetchApi handles redirect to /login.html on 401
         }
@@ -189,6 +198,13 @@
                 currentPage = 1;
                 loadHistory(currentPage);
             });
+            const toggleInvalidEl = document.getElementById('toggle-invalid');
+            if (toggleInvalidEl) {
+                toggleInvalidEl.addEventListener('change', () => {
+                    currentPage = 1;
+                    loadHistory(currentPage);
+                });
+            }
             document.getElementById('select-all').addEventListener('change', (e) => {
                 const checked = e.target.checked;
                 document.querySelectorAll('.item-checkbox').forEach(cb => {
@@ -238,9 +254,15 @@
                         },
                         body: JSON.stringify({
                             analysis_ids: selectedIds,
-                            include_mock: document.getElementById('toggle-mock').checked
+                            include_mock: document.getElementById('toggle-mock').checked,
+                            include_invalid: !!(document.getElementById('toggle-invalid')?.checked)
                         })
                     });
+
+                    const skipped = parseInt(res.headers.get('X-Skipped-Count') || '0', 10);
+                    if (skipped > 0) {
+                        showToast(`${skipped} invalid submissions skipped`);
+                    }
 
                     const blob = await res.blob();
                     const url = window.URL.createObjectURL(blob);
@@ -271,9 +293,15 @@
                         },
                         body: JSON.stringify({
                             analysis_ids: selectedIds,
-                            include_mock: document.getElementById('toggle-mock').checked
+                            include_mock: document.getElementById('toggle-mock').checked,
+                            include_invalid: !!(document.getElementById('toggle-invalid')?.checked)
                         })
                     });
+
+                    const skipped = parseInt(res.headers.get('X-Skipped-Count') || '0', 10);
+                    if (skipped > 0) {
+                        showToast(`${skipped} invalid submissions skipped`);
+                    }
 
                     const blob = await res.blob();
                     const url = window.URL.createObjectURL(blob);
@@ -303,9 +331,15 @@
                         },
                         body: JSON.stringify({
                             analysis_ids: selectedIds,
-                            include_mock: document.getElementById('toggle-mock').checked
+                            include_mock: document.getElementById('toggle-mock').checked,
+                            include_invalid: !!(document.getElementById('toggle-invalid')?.checked)
                         })
                     });
+
+                    const skipped = parseInt(res.headers.get('X-Skipped-Count') || '0', 10);
+                    if (skipped > 0) {
+                        showToast(`${skipped} invalid submissions skipped`);
+                    }
 
                     const blob = await res.blob();
                     const url = window.URL.createObjectURL(blob);
@@ -342,6 +376,9 @@
 
             try {
                 const isPublicTab = document.getElementById('tab-public').classList.contains('neu-pressed') ? 1 : 0;
+                const isInvalidChecked = document.getElementById('toggle-invalid')?.checked;
+                const canIncludeInvalid = user && (user.role === 'admin' || user.role === 'lgu_engineer') && isInvalidChecked;
+
                 const filters = {
                     page,
                     limit: 12,
@@ -349,10 +386,12 @@
                     is_mock: document.getElementById('toggle-mock').checked,
                     company: document.getElementById('filter-company').value.trim(),
                     barangay: document.getElementById('filter-barangay').value.trim(),
-                    street: document.getElementById('filter-street').value.trim()
+                    street: document.getElementById('filter-street').value.trim(),
+                    include_invalid: canIncludeInvalid
                 };
 
                 const data = await loadHistoryData(filters);
+
                 loadedItems = data.items;
                 renderHistory(loadedItems);
                 
@@ -378,6 +417,9 @@
                 return;
             }
 
+            const isInvalidChecked = document.getElementById('toggle-invalid')?.checked;
+            const canIncludeInvalid = user && (user.role === 'admin' || user.role === 'lgu_engineer') && isInvalidChecked;
+
             items.forEach(item => {
                 const el = document.createElement('div');
                 el.className = 'gallery-item';
@@ -393,6 +435,7 @@
                 }
                 
                 const isComplete = item.status === 'complete' || item.status === 'no_wires';
+                const canSelect = isComplete || (canIncludeInvalid && item.status === 'rejected');
                 const pdfButton = isComplete 
                     ? `<a href="/api/reports/${item.id}.pdf" target="_blank" class="neu-button neu-flat" style="flex: 1; text-align: center; text-decoration: none;" download>PDF</a>`
                     : '';
@@ -400,7 +443,7 @@
                 el.innerHTML = `
                     ${mockBadge}
                     <div style="position: absolute; top: 10px; left: 10px; z-index: 10;">
-                        <input type="checkbox" class="item-checkbox" value="${item.id}" ${isComplete ? '' : 'disabled'}>
+                        <input type="checkbox" class="item-checkbox" value="${item.id}" ${canSelect ? '' : 'disabled'}>
                     </div>
                     <img src="${thumbSrc ? escapeHtml(thumbSrc) : ''}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiM0NDQiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZmlsbD0iI2FhYSIgZGltaW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gVGh1bWJuYWlsPC90ZXh0Pjwvc3ZnPg=='" alt="${escapeHtml(item.filename || 'Thumbnail')}">
                     <div class="gallery-item-info">

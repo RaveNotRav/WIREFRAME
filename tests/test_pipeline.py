@@ -703,7 +703,7 @@ def test_clearance_rollup_in_mock_mode(tmp_path, monkeypatch):
 
     lowest_w = min(valid_wires, key=lambda w: w["clearance_m"])
     assert row["clearance_available"] == pytest.approx(lowest_w["clearance_m"], abs=1e-4)
-    expected_ok = 1 if lowest_w["clearance_status"] == "ok" else 0
+    expected_ok = 1 if lowest_w["clearance_status"] == "ok" else (2 if lowest_w["clearance_status"] == "marginal" else 0)
     assert row["clearance_ok"] == expected_ok
 
     max_sag = max(w["sag_m"] for w in wires if w["sag_m"] is not None)

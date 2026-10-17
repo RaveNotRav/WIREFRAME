@@ -71,5 +71,24 @@ test('History/Sites Loaders', async (t) => {
         assert.deepStrictEqual(res.items, [{ id: 100 }]);
     });
 
+    await t.test('include_invalid appends query parameter', async () => {
+        let requestedUrl = '';
+        global.fetch = async (url) => {
+            if (!url.includes('/api/sites')) {
+                requestedUrl = url;
+            }
+            return {
+                ok: true,
+                status: 200,
+                json: async () => ({ data: [], total: 0, limit: 12 })
+            };
+        };
+        await loadHistoryData({ include_invalid: true });
+        assert.ok(requestedUrl.includes('include_invalid=true'), `Expected include_invalid=true in ${requestedUrl}`);
+
+        await loadHistoryData({ include_invalid: false });
+        assert.ok(!requestedUrl.includes('include_invalid'), `Did not expect include_invalid in ${requestedUrl}`);
+    });
+
     global.fetch = originalFetch;
 });

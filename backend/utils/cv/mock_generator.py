@@ -41,7 +41,7 @@ def generate_mock_segmentation(image_path: str, original_shape: tuple[int, int])
         except Exception:
             hash_val = 0
             
-        scenarios = ["safe", "caution", "unsafe", "critical", "nowires", "safe", "caution"]
+        scenarios = ["safe", "caution", "safe", "caution"]
         scenario = scenarios[hash_val % len(scenarios)]
         
     if scenario == "reject":
@@ -78,40 +78,42 @@ def generate_mock_segmentation(image_path: str, original_shape: tuple[int, int])
         masks.append(pole_mask)
         
     # Generate mock wires
-    # Depending on scenario, we change sag amount
-    sag_factor = {
-        "safe": 0.05,
-        "caution": 0.15,
-        "unsafe": 0.30,
-        "critical": 0.50,
-        "nopole": 0.20
-    }.get(scenario, 0.1)
+    x_end = int(w * 0.8) if has_pole else w
+    center_x = x_end * 0.5
+    
+    if scenario == "unsafe":
+        # Below-PEC scenario: lower attachments and deeper sag (~2.5 - 3.5m clearance)
+        base_y = int(h * 0.38)
+        y_step = int(h * 0.08)
+        sag_px_base = int(h * 0.12)
+    else:
+        # Standard mock: realistic clearance target 5 - 9 m above ground
+        base_y = int(h * 0.16)
+        y_step = int(h * 0.04)
+        sag_px_base = int(h * 0.05)
     
     num_wires = 3
+    max_wire_y = int(h * 0.9 - 15) if has_pole else int(h - 15)
     
     for i in range(num_wires):
-        # Create a cosh curve
-        # y = a * cosh((x - center_x) / a)
         mask = np.zeros((h, w), dtype=np.uint8)
+        y_attach = base_y + i * y_step
+        wire_sag = sag_px_base + int(i * h * 0.01)
         
-        y_offset = int(h * (0.2 + i * 0.15))
-        a = w / (sag_factor * 10.0) # Fake parameter
-        
-        max_wire_y = int(h * 0.9 - 20) if has_pole else int(h - 20)
         pts = []
-        for x in range(0, int(w * 0.8) if has_pole else w, 5):
-            center_x = w * 0.4
-            raw_y = int(a * np.cosh((x - center_x) / a) - a) + y_offset
-            y = min(raw_y, max_wire_y)
-            if y < h:
+        for x in range(0, x_end, 5):
+            u = (x - center_x) / center_x if center_x > 0 else 0
+            y = int(y_attach + wire_sag * (1.0 - u**2))
+            y = min(y, max_wire_y)
+            if 0 <= y < h:
                 pts.append((x, y))
                 
         if len(pts) > 2:
-            pts = np.array(pts, np.int32)
-            cv2.polylines(mask, [pts], False, 255, 10)
+            pts_arr = np.array(pts, np.int32)
+            cv2.polylines(mask, [pts_arr], False, 255, 6)
             
             # Find bounding box
-            x, y, bw, bh = cv2.boundingRect(pts)
+            x, y, bw, bh = cv2.boundingRect(pts_arr)
             boxes.append([x, y, x + bw, y + bh])
             classes.append(0 if i < 2 else 2) # First two telecom, 3rd dead
             confidences.append(0.85 + i * 0.03)

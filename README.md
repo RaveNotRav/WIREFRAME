@@ -26,10 +26,21 @@ cp .env.example .env
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+## Mock Mode
+
+For demonstration and testing without local model weights or a GPU, WIREFRAME includes a deterministic mock pipeline.
+To enable mock mode, set the environment variable:
+
+```powershell
+$env:WIREFRAME_MOCK="1"
+```
+
+Results in mock mode are demonstration data, not field measurements.
+
 ## Demo admin (mock mode only)
 
 ```powershell
-$env:WIREFRAME_MOCK="1"; .\venv\Scripts\python.exe scripts\seed_demo_admin.py; Get-Content passwords_demo_admin.txt
+$env:WIREFRAME_MOCK="1"; .\venv\Scripts\python.exe scripts\seed_demo_admin.py
 ```
 
 ## Test

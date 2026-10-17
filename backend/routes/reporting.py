@@ -73,6 +73,10 @@ def _get_analysis_data(conn, analysis_id: int):
     if data['status'] == 'no_wires':
         safety_level = 'No Wires Detected'
         data['action_text'] = NO_WIRES_ACTION_TEXT
+    elif data['status'] == 'rejected':
+        safety_level = 'Rejected'
+        reason = data.get('summary') or data.get('error_message') or 'Image rejected'
+        data['action_text'] = f"Rejected: {reason}"
     else:
         data['action_text'] = action_mapping.get(safety_level, '')
         
@@ -184,9 +188,14 @@ def get_pdf_report(analysis_id: int, req: Request, user: User | None = Depends(g
 class SummaryRequest(BaseModel):
     analysis_ids: list[int]
     include_mock: bool = False
+    include_invalid: bool = False
 
 @router.post("/reports/summary", dependencies=[Depends(verify_csrf)])
-def generate_summary(payload: SummaryRequest, user: User = Depends(get_current_user)):
+def generate_summary(
+    payload: SummaryRequest,
+    include_invalid: bool = Query(False, description="Include rejected and no_wires submissions"),
+    user: User = Depends(get_current_user)
+):
     if len(payload.analysis_ids) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 analyses allowed for summary")
         
@@ -194,6 +203,8 @@ def generate_summary(payload: SummaryRequest, user: User = Depends(get_current_u
     try:
         items = []
         has_mock = False
+        allow_invalid = (include_invalid or payload.include_invalid) and (user.role in ("admin", "lgu_engineer"))
+        skipped_count = 0
         
         for aid in payload.analysis_ids:
             data = _get_analysis_data(conn, aid)
@@ -203,7 +214,11 @@ def generate_summary(payload: SummaryRequest, user: User = Depends(get_current_u
             if user.role == "field_inspector" and data["created_by"] != user.id:
                 raise HTTPException(status_code=403, detail=f"Access denied for analysis {aid}")
                 
-            if data["status"] not in ["complete", "no_wires"]:
+            if data["status"] in ["rejected", "no_wires"]:
+                if not allow_invalid:
+                    skipped_count += 1
+                    continue
+            elif data["status"] != "complete":
                 raise HTTPException(status_code=409, detail=f"Analysis {aid} is not complete")
                 
             if data["is_mock"]:
@@ -225,8 +240,13 @@ def generate_summary(payload: SummaryRequest, user: User = Depends(get_current_u
             })
             
         # Sort by safety
-        risk_map = {"Critical": 4, "Unsafe": 3, "Caution": 2, "Safe": 1, "Unknown": 0}
-        items.sort(key=lambda x: (risk_map.get(x["safety_level"], 0), x.get("max_crs") or 0), reverse=True)
+        risk_map = {"Critical": 4, "Unsafe": 3, "Caution": 2, "Safe": 1, "Unknown": 0, "No Wires Detected": -1, "Rejected": -2}
+        def _crs_sort_key(x):
+            v = x.get("max_crs")
+            if isinstance(v, (int, float)):
+                return float(v)
+            return 0.0
+        items.sort(key=lambda x: (risk_map.get(x["safety_level"], 0), _crs_sort_key(x)), reverse=True)
         
         out_dir = os.path.join("outputs", "reports")
         os.makedirs(out_dir, exist_ok=True)
@@ -237,7 +257,8 @@ def generate_summary(payload: SummaryRequest, user: User = Depends(get_current_u
         
         summary_data = {
             "has_mock": has_mock,
-            "items": items
+            "items": items,
+            "skipped_invalid": skipped_count
         }
         
         build_summary_pdf(summary_data, temp_path)
@@ -247,18 +268,28 @@ def generate_summary(payload: SummaryRequest, user: User = Depends(get_current_u
             final_path, 
             media_type="application/pdf", 
             filename=f"wireframe-summary-{ts}.pdf",
-            headers={"Cache-Control": "private, no-store"}
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Skipped-Invalid": str(skipped_count),
+                "X-Skipped-Count": str(skipped_count)
+            }
         )
     finally:
         conn.close()
 @router.post("/reports/geojson", dependencies=[Depends(verify_csrf)])
-def export_geojson(payload: SummaryRequest, user: User = Depends(get_current_user)):
+def export_geojson(
+    payload: SummaryRequest,
+    include_invalid: bool = Query(False, description="Include rejected and no_wires submissions"),
+    user: User = Depends(get_current_user)
+):
     if len(payload.analysis_ids) > 100:
         raise HTTPException(status_code=400, detail="Maximum 100 analyses allowed for export")
         
     conn = get_connection()
     try:
         features = []
+        allow_invalid = (include_invalid or payload.include_invalid) and (user.role in ("admin", "lgu_engineer"))
+        skipped_count = 0
         
         for aid in payload.analysis_ids:
             data = _get_analysis_data(conn, aid)
@@ -268,7 +299,11 @@ def export_geojson(payload: SummaryRequest, user: User = Depends(get_current_use
             if user.role == "field_inspector" and data["created_by"] != user.id:
                 raise HTTPException(status_code=403, detail=f"Access denied for analysis {aid}")
             
-            if data["status"] not in ["complete", "no_wires"]:
+            if data["status"] in ["rejected", "no_wires"]:
+                if not allow_invalid:
+                    skipped_count += 1
+                    continue
+            elif data["status"] != "complete":
                 continue
                 
             if data["is_mock"] and not payload.include_mock:
@@ -308,10 +343,18 @@ def export_geojson(payload: SummaryRequest, user: User = Depends(get_current_use
             
         fc = {
             "type": "FeatureCollection",
-            "features": features
+            "features": features,
+            "skipped_invalid": skipped_count
         }
         
-        return Response(content=json.dumps(fc), media_type="application/geo+json")
+        return Response(
+            content=json.dumps(fc),
+            media_type="application/geo+json",
+            headers={
+                "X-Skipped-Invalid": str(skipped_count),
+                "X-Skipped-Count": str(skipped_count)
+            }
+        )
     finally:
         conn.close()
 
@@ -324,13 +367,19 @@ def sanitize_csv_cell(val: Any) -> Any:
     return s
 
 @router.post("/reports/csv", dependencies=[Depends(verify_csrf)])
-def export_csv(payload: SummaryRequest, user: User = Depends(get_current_user)):
+def export_csv(
+    payload: SummaryRequest,
+    include_invalid: bool = Query(False, description="Include rejected and no_wires submissions"),
+    user: User = Depends(get_current_user)
+):
     if len(payload.analysis_ids) > 100:
         raise HTTPException(status_code=400, detail="Maximum 100 analyses allowed for export")
         
     conn = get_connection()
     try:
         rows = []
+        allow_invalid = (include_invalid or payload.include_invalid) and (user.role in ("admin", "lgu_engineer"))
+        skipped_count = 0
         
         for aid in payload.analysis_ids:
             data = _get_analysis_data(conn, aid)
@@ -340,7 +389,11 @@ def export_csv(payload: SummaryRequest, user: User = Depends(get_current_user)):
             if user.role == "field_inspector" and data["created_by"] != user.id:
                 raise HTTPException(status_code=403, detail=f"Access denied for analysis {aid}")
             
-            if data["status"] not in ["complete", "no_wires"]:
+            if data["status"] in ["rejected", "no_wires"]:
+                if not allow_invalid:
+                    skipped_count += 1
+                    continue
+            elif data["status"] != "complete":
                 continue
                 
             if data["is_mock"] and not payload.include_mock:
@@ -373,7 +426,14 @@ def export_csv(payload: SummaryRequest, user: User = Depends(get_current_user)):
             writer.writeheader()
             writer.writerows(rows)
             
-        return Response(content=output.getvalue(), media_type="text/csv")
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={
+                "X-Skipped-Invalid": str(skipped_count),
+                "X-Skipped-Count": str(skipped_count)
+            }
+        )
     finally:
         conn.close()
 

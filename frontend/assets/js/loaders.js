@@ -6,7 +6,7 @@ import { fetchApi } from './main.js';
  * @returns {Promise<{items: Array, total: number, limit: number}>}
  */
 export async function loadHistoryData(filters = {}) {
-    const { page = 1, limit = 12, is_mock = true, is_public, company, barangay, street } = filters;
+    const { page = 1, limit = 12, is_mock = true, is_public, company, barangay, street, include_invalid } = filters;
     let url = `/api/analysis?page=${page}&limit=${limit}`;
     if (!is_mock) url += `&is_mock=0`;
     if (is_public !== undefined) url += `&is_public=${is_public}`;
@@ -14,6 +14,7 @@ export async function loadHistoryData(filters = {}) {
     if (company) url += `&company=${encodeURIComponent(company)}`;
     if (barangay) url += `&barangay=${encodeURIComponent(barangay)}`;
     if (street) url += `&street=${encodeURIComponent(street)}`;
+    if (include_invalid) url += `&include_invalid=true`;
 
     const res = await fetchApi(url);
     const data = await res.json();
