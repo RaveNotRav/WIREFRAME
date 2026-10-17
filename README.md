@@ -26,6 +26,12 @@ cp .env.example .env
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+## Demo admin (mock mode only)
+
+```powershell
+$env:WIREFRAME_MOCK="1"; .\venv\Scripts\python.exe scripts\seed_demo_admin.py; Get-Content passwords_demo_admin.txt
+```
+
 ## Test
 
 ```bash

@@ -1,5 +1,6 @@
 param(
-    [switch]$Clean
+    [switch]$Clean,
+    [switch]$SeedAdmin
 )
 
 if ($Clean) {
@@ -32,7 +33,9 @@ $db_exists = Test-Path "wireframe.db"
 $env:PYTHONPATH="."
 $env:WIREFRAME_MOCK="1"
 
-if (-not $db_exists) {
+if ($SeedAdmin) {
+    python scripts\seed_demo_admin.py
+} elseif (-not $db_exists) {
     Write-Host "Initializing Database and Migrations..." -ForegroundColor Cyan
     python -c "from backend.database import get_connection, run_migrations; run_migrations(get_connection())"
     
