@@ -1,155 +1,211 @@
-/* tokens.css - Core variables for Neumorphism, layout, and colors */
+/* tokens.css - Core variables for Neumorphism, layout, engineering telemetry, and colors */
+
+/* Typography: Headings (Space Grotesk), Body (Plus Jakarta Sans), Technical Telemetry (JetBrains Mono) */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap');
 
 :root, [data-theme="light"] {
     color-scheme: light;
-    /* Spacing */
+    /* Spacing Grid (4px scale preserved) */
     --spacing-xs: 4px;
     --spacing-sm: 8px;
     --spacing-md: 16px;
     --spacing-lg: 24px;
     --spacing-xl: 32px;
+    --spacing-2xl: 48px;
 
     /* Font Sizes */
     --font-size-xs: 0.75rem;
     --font-size-sm: 0.875rem;
     --font-size-md: 1rem;
-    --font-size-lg: 1.25rem;
-    --font-size-xl: 1.5rem;
+    --font-size-lg: 1.125rem;
+    --font-size-xl: 1.35rem;
+    --font-size-2xl: 1.75rem;
+    --font-size-3xl: 2.25rem;
+    --font-size-hero: 3.5rem;
 
     /* Font Weights */
+    --font-weight-regular: 400;
     --font-weight-medium: 500;
+    --font-weight-semibold: 600;
     --font-weight-bold: 700;
+    --font-weight-extrabold: 800;
+
+    /* Typography Stacks */
+    --font-family-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-family-heading: 'Space Grotesk', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-family-mono: 'JetBrains Mono', 'SF Mono', Monaco, Menlo, Consolas, "Liberation Mono", monospace;
+    --font-family: var(--font-family-body); /* Preserves backward compatibility */
 
     /* Extra Radii */
-    --radius-sm: 4px;
-    --radius-md: 8px;
-    
-    --surface-raised: rgba(128, 128, 128, 0.2);
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-tile: 20px;
+    --radius-control: 12px;
+    --radius-pill: 9999px;
 
-    /* Base Surface */
+    --surface-raised: rgba(128, 128, 128, 0.15);
+    --surface-sunken: #D7DEE7;
+    --bg-card-alt: #DEE4EB;
+
+    /* Base Surface (Light Mode) */
     --surface-bg: #E4E9F0;
-    --text-primary: #1F2C38;
-    --text-secondary: #40505E;
-    --text-muted: #576574;
-    --text-disabled: #7c8594;
+    --text-primary: #0F172A;
+    --text-secondary: #334155;
+    --text-muted: #64748B;
+    --text-disabled: #94A3B8;
 
-    /* Neumorphic Shadows */
+    /* High-Contrast Technical / Telemetry Layer (Analyze HUD & Dashboard Instruments) */
+    --surface-instrument: #0F172A;            /* Deep Slate Engineering HUD */
+    --surface-instrument-card: #1E293B;       /* Internal instrument card */
+    --surface-instrument-card-subtle: #243248;
+    --surface-instrument-border: rgba(56, 189, 248, 0.28); /* Cyan hairline edge */
+    --surface-instrument-border-subtle: rgba(148, 163, 184, 0.18);
+    --text-instrument-primary: #F8FAFC;       /* High-contrast crisp white */
+    --text-instrument-secondary: #CBD5E1;     /* High-legibility technical secondary */
+    --text-instrument-muted: #94A3B8;         /* Micro-labels / units */
+    --telemetry-cyan: #38BDF8;                /* Primary readout highlight */
+    --telemetry-emerald: #34D399;             /* Compliant / safe signal */
+    --telemetry-amber: #FBBF24;               /* Warning signal */
+    --telemetry-orange: #FB923C;              /* Unsafe signal */
+    --telemetry-rose: #F87171;                /* Critical / danger signal */
+
+    /* Neumorphic Shadows (Tactile feel preserved) */
     --shadow-light: #ffffff;
     --shadow-dark: rgba(163, 177, 198, 0.55);
-    
-    /* Neumorphic Shadow Definitions */
     --neu-raised: -8px -8px 16px var(--shadow-light), 8px 8px 16px var(--shadow-dark);
     --neu-raised-sm: -4px -4px 8px var(--shadow-light), 4px 4px 8px var(--shadow-dark);
     --neu-pressed: inset -4px -4px 8px var(--shadow-light), inset 4px 4px 8px var(--shadow-dark);
+    --neu-pressed-sm: inset -2px -2px 4px var(--shadow-light), inset 2px 2px 4px var(--shadow-dark);
+    --neu-inset: var(--neu-pressed);
 
+    /* Electric Precision Cobalt Palette */
+    --color-primary: #2563EB;
+    --color-primary-hover: #1D4ED8;
+    --color-primary-light: #DBEAFE;
+    --color-accent-gradient: linear-gradient(135deg, #1D4ED8 0%, #2563EB 55%, #0284C7 100%);
+    --color-accent-gradient-hover: linear-gradient(135deg, #1E40AF 0%, #1D4ED8 55%, #0369A1 100%);
+    --color-accent-glow: 0 4px 20px rgba(37, 99, 235, 0.35);
+
+    /* Borders & Focus */
+    --border-subtle: 1px solid rgba(100, 116, 139, 0.25);
+    --border-accent: 1px solid rgba(37, 99, 235, 0.35);
+    --focus-ring: 3px solid #2563EB;
+
+    /* Semantic Colors - Risk (PEC 2017) */
+    --risk-low: #059669;       /* Safe / Green */
+    --risk-low-bg: rgba(5, 150, 105, 0.15);
+    --risk-moderate: #D97706;  /* Caution / Amber */
+    --risk-medium: #D97706;    /* Alias for risk-moderate */
+    --risk-moderate-bg: rgba(217, 119, 6, 0.15);
+    --risk-high: #EA580C;      /* Unsafe / Orange */
+    --risk-high-bg: rgba(234, 88, 12, 0.15);
+    --risk-critical: #DC2626;  /* Critical / Danger Red */
+    --risk-critical-bg: rgba(220, 38, 38, 0.15);
     
-    /* Borders */
-    --border-subtle: 1px solid #7c8594;
-    --focus-ring: 3px solid #2980b9;
-
-    /* Radius */
-    --radius-tile: 24px;
-    --radius-control: 14px;
-    --radius-pill: 9999px;
-
-    /* Semantic Colors - Risk */
-    --risk-low: #145A32;      /* Green */
-    --risk-moderate: #935116; /* Amber */
-    --risk-high: #A04000;     /* Orange */
-    --risk-critical: #A93226; /* Red */
-    
-    /* Semantic Colors - Wire Classes */
-    --wire-power_line: #A93226;    
-    --wire-telecom_cable: #145A32;  
-    --wire-fiber_optic: #3498db;    
-    --wire-dead_abandoned: #9b59b6;     
-
-
+    /* Semantic Colors - Wire Classes (Including legacy & shorthand aliases) */
+    --wire-power: #DC2626;
+    --wire-power_line: #DC2626;
+    --wire-telecom: #059669;
+    --wire-telecom_cable: #059669;
+    --wire-fiber: #2563EB;
+    --wire-fiber_optic: #2563EB;
+    --wire-dead: #9333EA;
+    --wire-dead_abandoned: #9333EA;
 
     /* Hero Image Overlays */
-    --hero-overlay-gradient: linear-gradient(to right, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.4) 100%);
-    --hero-text-color: #1F2C38;
-
-    /* Hero Illustration Colors */
-    --hero-pole-fill: #7c8594;
-    --hero-pole-stroke: #40505E;
-    --hero-wire-stroke: #3498db;
+    --hero-overlay-gradient: linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 58, 138, 0.75) 60%, rgba(15, 23, 42, 0.85) 100%);
+    --hero-text-color: #FFFFFF;
+    --hero-pole-fill: #64748B;
+    --hero-pole-stroke: #334155;
+    --hero-wire-stroke: #38BDF8;
 
     /* Generic UI Colors */
-    --color-primary: #3498db;
-    --color-error: #A93226;
-    --color-success: #145A32;
-    --color-warning: #935116;
-
-    /* Typography */
-    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --color-error: #DC2626;
+    --color-success: #059669;
+    --color-warning: #D97706;
 }
 
 [data-theme="dark"] {
     color-scheme: dark;
     /* Base Surface */
-    --surface-bg: #1a1a1a;
-    --text-primary: #f5f5f5;
-    --text-secondary: #c9a24b; /* Gold accents */
-    --text-muted: #888888;
-    --text-disabled: #555555;
+    --surface-bg: #0B0F17;
+    --surface-sunken: #070A0F;
+    --bg-card-alt: #161F2E;
+    --text-primary: #F8FAFC;
+    --text-secondary: #CBD5E1;
+    --text-muted: #94A3B8;
+    --text-disabled: #475569;
 
-    /* Neumorphic Shadows - recalculated for #1a1a1a base */
-    --shadow-light: #262626;
-    --shadow-dark: #0e0e0e;
+    /* High-Contrast Technical / Telemetry Layer */
+    --surface-instrument: #070A0F;
+    --surface-instrument-card: #0F172A;
+    --surface-instrument-card-subtle: #162032;
+    --surface-instrument-border: rgba(56, 189, 248, 0.32);
+    --surface-instrument-border-subtle: rgba(148, 163, 184, 0.2);
+    --text-instrument-primary: #F8FAFC;
+    --text-instrument-secondary: #CBD5E1;
+    --text-instrument-muted: #94A3B8;
 
-    
+    /* Neumorphic Shadows for dark base */
+    --shadow-light: #162032;
+    --shadow-dark: #04060A;
+
     /* Borders */
-    --border-subtle: 1px solid #333333;
-    --focus-ring: 3px solid #c9a24b;
-
-
-
-    /* Hero Image Overlays */
-    --hero-overlay-gradient: linear-gradient(to right, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 100%);
-    --hero-text-color: #f5f5f5;
-
-    /* Hero Illustration Colors */
-    --hero-pole-fill: #444444;
-    --hero-pole-stroke: #888888;
-    --hero-wire-stroke: #888888;
+    --border-subtle: 1px solid rgba(255, 255, 255, 0.1);
+    --border-accent: 1px solid rgba(56, 189, 248, 0.4);
+    --focus-ring: 3px solid #38BDF8;
 
     /* Generic UI Colors */
-    --color-primary: #c9a24b;
+    --color-primary: #38BDF8;
+    --color-primary-hover: #60A5FA;
+    --color-accent-gradient: linear-gradient(135deg, #0284C7 0%, #2563EB 50%, #38BDF8 100%);
+    --color-accent-glow: 0 4px 20px rgba(56, 189, 248, 0.3);
 
-    /* Adjust risk colors for better contrast in dark mode */
-    --risk-low: #2ecc71;
-    --risk-moderate: #f1c40f;
-    --risk-high: #e67e22;
-    --risk-critical: #FF6B6B;
+    /* Risk colors */
+    --risk-low: #10B981;
+    --risk-moderate: #FBBF24;
+    --risk-medium: #FBBF24;
+    --risk-high: #FB923C;
+    --risk-critical: #F87171;
 }
 
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
         color-scheme: dark;
-        /* Base Surface */
-        --surface-bg: #1a1a1a;
-        --text-primary: #f5f5f5;
-        --text-secondary: #c9a24b; /* Gold accents */
-        --text-muted: #888888;
-        --text-disabled: #555555;
-    
-        /* Neumorphic Shadows */
-        --shadow-light: #262626;
-        --shadow-dark: #0e0e0e;
-    
-        
-    /* Borders */
-        --border-subtle: 1px solid #333333;
-        --focus-ring: 3px solid #c9a24b;
+        --surface-bg: #0B0F17;
+        --surface-sunken: #070A0F;
+        --bg-card-alt: #161F2E;
+        --text-primary: #F8FAFC;
+        --text-secondary: #CBD5E1;
+        --text-muted: #94A3B8;
+        --text-disabled: #475569;
 
-        /* Generic UI Colors */
-        --color-primary: #c9a24b;
+        --surface-instrument: #070A0F;
+        --surface-instrument-card: #0F172A;
+        --surface-instrument-card-subtle: #162032;
+        --surface-instrument-border: rgba(56, 189, 248, 0.32);
+        --surface-instrument-border-subtle: rgba(148, 163, 184, 0.2);
+        --text-instrument-primary: #F8FAFC;
+        --text-instrument-secondary: #CBD5E1;
+        --text-instrument-muted: #94A3B8;
 
-        /* Adjust risk colors */
-        --risk-low: #2ecc71;
-        --risk-moderate: #f1c40f;
-        --risk-high: #e67e22;
-        --risk-critical: #FF6B6B;
+        --shadow-light: #162032;
+        --shadow-dark: #04060A;
+
+        --border-subtle: 1px solid rgba(255, 255, 255, 0.1);
+        --border-accent: 1px solid rgba(56, 189, 248, 0.4);
+        --focus-ring: 3px solid #38BDF8;
+
+        --color-primary: #38BDF8;
+        --color-primary-hover: #60A5FA;
+        --color-accent-gradient: linear-gradient(135deg, #0284C7 0%, #2563EB 50%, #38BDF8 100%);
+        --color-accent-glow: 0 4px 20px rgba(56, 189, 248, 0.3);
+
+        --risk-low: #10B981;
+        --risk-moderate: #FBBF24;
+        --risk-medium: #FBBF24;
+        --risk-high: #FB923C;
+        --risk-critical: #F87171;
     }
 }

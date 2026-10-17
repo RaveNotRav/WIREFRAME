@@ -11,17 +11,307 @@
     <link rel="stylesheet" href="/assets/css/components.css">
     <link rel="stylesheet" href="/assets/css/global-header.css?v=3">
     <style>
-        /* Specific page overrides */
+        /* Specific page overrides & Engineering HUD Styling */
         #canvas-modal-container {
             position: relative;
             width: 100%;
             height: 60vh;
             background: #000;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            border: 1px solid var(--surface-instrument-border);
         }
         #calibration-canvas, #calibration-img {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
             object-fit: contain;
+        }
+
+        /* Typography Hierarchy */
+        h1, h2, h3, .bento-tile-title, .stepper-step span {
+            font-family: var(--font-family-heading);
+            letter-spacing: -0.01em;
+        }
+
+        /* Global Stepper - Clean inline steps on page background */
+        .global-stepper {
+            background: transparent !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            padding: 8px 0 !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+        .stepper-step .step-circle {
+            font-family: var(--font-family-mono);
+            transition: all 0.25s ease;
+        }
+        .stepper-step.active .step-circle {
+            background: var(--color-accent-gradient) !important;
+            box-shadow: var(--color-accent-glow), var(--neu-raised-sm) !important;
+        }
+        .stepper-step span {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 0.01em;
+            transition: color 0.25s ease;
+        }
+        .stepper-step.active span {
+            color: var(--text-primary);
+            font-weight: 700;
+        }
+
+        /* ========================================================
+           ENGINEERING HUD: TELEMETRY & DIAGNOSTIC TILES
+           ======================================================== */
+        .telemetry-tile {
+            background: var(--surface-instrument) !important;
+            color: var(--text-instrument-primary) !important;
+            border: 1px solid var(--surface-instrument-border) !important;
+            box-shadow: 0 12px 30px -6px rgba(15, 23, 42, 0.4), 0 4px 12px rgba(15, 23, 42, 0.25) !important;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Luminous top hairline on instrument panels */
+        .telemetry-tile::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent 0%, var(--telemetry-cyan) 30%, rgba(56, 189, 248, 0.8) 70%, transparent 100%);
+            opacity: 0.75;
+            pointer-events: none;
+        }
+
+        /* HUD Tile Headers */
+        .telemetry-tile .bento-tile-title {
+            font-family: var(--font-family-heading);
+            font-size: 0.875rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--telemetry-cyan);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Tabular Monospace Readouts */
+        .telemetry-tile .bento-tile-value,
+        #crs-value,
+        #sag-value,
+        #clearance-value,
+        #vni-value {
+            font-family: var(--font-family-mono) !important;
+            font-variant-numeric: tabular-nums;
+            color: #F8FAFC !important;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            text-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
+        }
+
+        /* Subtext in HUD Tiles */
+        .telemetry-tile .bento-tile-subtext {
+            color: var(--text-instrument-muted) !important;
+            font-size: 0.825rem;
+            line-height: 1.4;
+        }
+
+        /* CRS Risk Band */
+        #crs-band {
+            font-family: var(--font-family-mono);
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--telemetry-cyan) !important;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        /* High-Contrast Risk Badges on Dark HUD */
+        .telemetry-tile .neu-badge,
+        #status-badge {
+            font-family: var(--font-family-mono);
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            border-radius: var(--radius-pill);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        .telemetry-tile .neu-badge[data-risk="Safe"],
+        #status-badge[data-risk="Safe"] {
+            background: rgba(5, 150, 105, 0.25) !important;
+            color: #34D399 !important;
+            border: 1.5px solid #10B981 !important;
+        }
+        .telemetry-tile .neu-badge[data-risk="Safe"] svg circle,
+        #status-badge[data-risk="Safe"] svg circle {
+            fill: #34D399 !important;
+        }
+
+        .telemetry-tile .neu-badge[data-risk="Caution"],
+        #status-badge[data-risk="Caution"] {
+            background: rgba(217, 119, 6, 0.25) !important;
+            color: #FBBF24 !important;
+            border: 1.5px solid #F59E0B !important;
+        }
+        .telemetry-tile .neu-badge[data-risk="Caution"] svg circle,
+        #status-badge[data-risk="Caution"] svg circle {
+            fill: #FBBF24 !important;
+        }
+
+        .telemetry-tile .neu-badge[data-risk="Unsafe"],
+        #status-badge[data-risk="Unsafe"] {
+            background: rgba(234, 88, 12, 0.25) !important;
+            color: #FB923C !important;
+            border: 1.5px solid #EA580C !important;
+        }
+        .telemetry-tile .neu-badge[data-risk="Unsafe"] svg circle,
+        #status-badge[data-risk="Unsafe"] svg circle {
+            fill: #FB923C !important;
+        }
+
+        .telemetry-tile .neu-badge[data-risk="Critical"],
+        #status-badge[data-risk="Critical"] {
+            background: rgba(220, 38, 38, 0.3) !important;
+            color: #F87171 !important;
+            border: 1.5px solid #EF4444 !important;
+            box-shadow: 0 0 16px rgba(239, 68, 68, 0.35) !important;
+        }
+        .telemetry-tile .neu-badge[data-risk="Critical"] svg circle,
+        #status-badge[data-risk="Critical"] svg circle {
+            fill: #F87171 !important;
+        }
+
+        .telemetry-tile .neu-badge[data-risk="Unknown"],
+        .telemetry-tile .neu-badge[data-risk="Incomplete"],
+        #status-badge[data-risk="Unknown"],
+        #status-badge[data-risk="Incomplete"] {
+            background: rgba(100, 116, 139, 0.25) !important;
+            color: #CBD5E1 !important;
+            border: 1.5px solid #64748B !important;
+        }
+        .telemetry-tile .neu-badge[data-risk="Unknown"] svg circle,
+        #status-badge[data-risk="Unknown"] svg circle {
+            fill: #CBD5E1 !important;
+        }
+
+        /* Safety Reasons List */
+        #safety-reasons li {
+            color: var(--text-instrument-secondary) !important;
+            margin-bottom: 6px;
+            line-height: 1.4;
+        }
+
+        /* Action Recommendation Card */
+        #tile-action .bento-tile-body {
+            background: var(--surface-instrument-card);
+            border: 1px solid var(--surface-instrument-border-subtle);
+            border-radius: var(--radius-control);
+            padding: 16px;
+        }
+        #action-text {
+            color: #F8FAFC !important;
+            font-weight: 600;
+        }
+
+        /* CRS Gauge Styling */
+        #crs-gauge {
+            background: #070A0F !important;
+            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            height: 18px;
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
+        }
+        .neu-gauge-marker {
+            background: rgba(255, 255, 255, 0.25) !important;
+        }
+        #tile-crs .neu-gauge-container + div span {
+            font-family: var(--font-family-mono);
+            color: var(--text-instrument-muted) !important;
+        }
+
+        /* Annotated Image Frame */
+        #tile-image #img-annotated {
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+        }
+        #analysis-metadata {
+            background: var(--surface-instrument-card) !important;
+            color: var(--text-instrument-secondary) !important;
+            border: 1px solid var(--surface-instrument-border-subtle);
+        }
+        #analysis-metadata strong {
+            color: var(--telemetry-cyan);
+            font-family: var(--font-family-mono);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
+        /* Detected Wires List */
+        #wire-list > div {
+            background: var(--surface-instrument-card) !important;
+            border: 1px solid var(--surface-instrument-border-subtle) !important;
+            color: var(--text-instrument-primary) !important;
+            transition: border-color 0.2s ease;
+        }
+        #wire-list > div:hover {
+            border-color: var(--telemetry-cyan) !important;
+        }
+        #wire-list strong {
+            font-family: var(--font-family-heading);
+            color: #F8FAFC;
+        }
+        #wire-list div[style*="text-align:right"] {
+            font-family: var(--font-family-mono);
+            font-variant-numeric: tabular-nums;
+            color: var(--telemetry-cyan);
+        }
+
+        /* Stepper inside Pipeline Status */
+        #tile-progress .neu-step {
+            color: var(--text-instrument-muted);
+        }
+        #tile-progress .neu-step.active {
+            color: var(--telemetry-cyan) !important;
+        }
+        #tile-progress .neu-step.completed {
+            color: var(--text-instrument-secondary) !important;
+        }
+        #tile-progress .neu-step-icon {
+            background: var(--surface-instrument-card);
+            border: 1px solid var(--surface-instrument-border-subtle);
+            color: var(--text-instrument-secondary);
+        }
+        #tile-progress .neu-step.active .neu-step-icon {
+            background: var(--color-accent-gradient);
+            border-color: var(--telemetry-cyan);
+            color: #FFFFFF;
+            box-shadow: var(--color-accent-glow);
+        }
+
+        /* Calibration Tool Button on HUD */
+        #btn-calibrate {
+            background: var(--surface-instrument-card) !important;
+            border: 1px solid var(--telemetry-cyan) !important;
+            color: var(--telemetry-cyan) !important;
+            font-family: var(--font-family-mono);
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        #btn-calibrate:hover {
+            background: rgba(56, 189, 248, 0.15) !important;
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+        }
+
+        /* VNI Spectrum Display */
+        #vni-spectrum {
+            border: 1px solid var(--surface-instrument-border-subtle);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
         }
     </style>
 </head>
@@ -43,20 +333,18 @@
 
 
     <!-- Global Stepper -->
-    <div class="global-stepper" id="global-stepper" style="display: flex; justify-content: space-between; align-items: center; max-width: 600px; margin: 0 auto 30px auto; position: relative; padding: 20px;">
-        <div style="position: absolute; top: 50%; left: 10%; right: 10%; height: 2px; background: var(--border-subtle); z-index: 1;"></div>
+    <div class="global-stepper" id="global-stepper" style="display: flex; justify-content: space-between; align-items: center; max-width: 600px; margin: 0 auto 30px auto; position: relative;">
+        <div style="position: absolute; top: 16px; left: 10%; right: 10%; height: 2px; background: var(--border-subtle); z-index: 1;"></div>
         
         <div class="stepper-step active" id="step-upload" style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px;">
             <div class="step-circle" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; justify-content: center; align-items: center; font-weight: bold; box-shadow: var(--neu-raised-sm);">1</div>
-            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary);">Upload</span>
+            <span>Upload</span>
         </div>
         
-        <div class="stepper-step" id="step-processing" style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px; opacity: 0.5;">
-            <div class="step-circle" style="width: 32px; height: 32px; border-radius: 50%; background: var(--surface-bg); border: 2px solid var(--border-subtle); color: var(--text-secondary); display: flex; justify-content: center; align-items: center; font-weight: bold;">2</div>
-            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Processing</span>
+        <div class="stepper-step" id="step-processing" style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+            <div class="step-circle" style="width: 32px; height: 32px; border-radius: 50%; background: var(--surface-bg); border: 2px solid var(--border-subtle); color: var(--text-secondary); display: flex; justify-content: center; align-items: center; font-weight: bold; opacity: 0.75;">2</div>
+            <span>Processing</span>
         </div>
-        
-
     </div>
 
     <main class="bento-grid" id="main-grid">
@@ -118,7 +406,7 @@
         </div>
 
         <!-- Batch Switcher -->
-        <div class="bento-tile bento-xl neu-raised" id="tile-batch" style="display: none;">
+        <div class="bento-tile bento-xl neu-raised telemetry-tile" id="tile-batch" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Batch Results</h3>
             </div>
@@ -128,7 +416,7 @@
         </div>
 
         <!-- Pipeline Progress -->
-        <div class="bento-tile bento-m neu-raised" id="tile-progress" style="display: none;" aria-live="polite">
+        <div class="bento-tile bento-m neu-raised telemetry-tile" id="tile-progress" style="display: none;" aria-live="polite">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Pipeline Status</h3>
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
@@ -147,12 +435,12 @@
 
 
         <!-- Original vs Annotated Slider -->
-        <div class="bento-tile bento-xl neu-raised" id="tile-image" style="display: none;">
+        <div class="bento-tile bento-xl neu-raised telemetry-tile" id="tile-image" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Image Analysis</h3>
             </div>
             <div class="bento-tile-body">
-                <div id="analysis-metadata" style="display: none; padding: 10px; background: var(--bg-card-alt); border-radius: var(--radius-control); margin-bottom: 10px; font-size: 0.9rem; text-align: left; width: 100%;">
+                <div id="analysis-metadata" style="display: none; padding: 10px; border-radius: var(--radius-control); margin-bottom: 10px; font-size: 0.9rem; text-align: left; width: 100%;">
                     <strong>Company:</strong> <span id="meta-company">--</span><br>
                     <strong>Location:</strong> <span id="meta-location">--</span><br>
                     <div id="meta-notes-container" style="display: none; margin-top: 5px;">
@@ -161,36 +449,36 @@
                 </div>
                 <img id="img-annotated" style="width: 100%; max-height: 400px; object-fit: contain; border-radius: var(--radius-control); background: #000;" alt="Annotated Image" crossorigin="use-credentials">
                 <div class="bento-tile-footer">
-                    <button class="neu-button neu-raised-sm" id="btn-calibrate">Manual Calibration Tool</button>
+                    <button class="neu-button neu-raised-sm" id="btn-calibrate" style="display: none;">Manual Calibration Tool</button>
                 </div>
             </div>
         </div>
 
         <!-- Safety Badge -->
-        <div class="bento-tile bento-m neu-raised" id="tile-safety" style="display: none;">
+        <div class="bento-tile bento-m neu-raised telemetry-tile" id="tile-safety" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Overall Safety</h3>
             </div>
             <div class="bento-tile-body" style="align-items: center;">
                 <div class="neu-badge" id="safety-badge" data-risk="Unknown" style="font-size: 1.5rem; padding: 12px 24px;">Unknown</div>
-                <ul id="safety-reasons" style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 16px; padding-left: 20px;">
+                <ul id="safety-reasons" style="font-size: 0.9rem; margin-top: 16px; padding-left: 20px;">
                     <!-- Reasons populated via JS -->
                 </ul>
             </div>
         </div>
 
         <!-- Action Recommendations -->
-        <div class="bento-tile bento-m neu-raised" id="tile-action" style="display: none;">
+        <div class="bento-tile bento-m neu-raised telemetry-tile" id="tile-action" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Recommended Action</h3>
             </div>
             <div class="bento-tile-body" style="align-items: center; text-align: center; justify-content: center; min-height: 100px;">
-                <div id="action-text" style="font-size: 1.1rem; font-weight: 500; color: var(--text-primary);">--</div>
+                <div id="action-text" style="font-size: 1.1rem; font-weight: 500;">--</div>
             </div>
         </div>
 
         <!-- Catenary Risk Score -->
-        <div class="bento-tile bento-m neu-raised" id="tile-crs" style="display: none;">
+        <div class="bento-tile bento-m neu-raised telemetry-tile" id="tile-crs" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Catenary Risk Score (CRS)</h3>
             </div>
@@ -206,7 +494,7 @@
                         <div class="neu-gauge-marker" style="left: 86%;"></div>
                     </div>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-top: 5px;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-top: 5px;">
                     <span>0</span>
                     <span>0.33</span>
                     <span>0.66</span>
@@ -217,7 +505,7 @@
         </div>
 
         <!-- Wire Sag & Clearance -->
-        <div class="bento-tile bento-m neu-raised" id="tile-sag" style="display: none;">
+        <div class="bento-tile bento-m neu-raised telemetry-tile" id="tile-sag" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Wire Sag & Clearance</h3>
             </div>
@@ -230,7 +518,7 @@
         </div>
 
         <!-- VNI -->
-        <div class="bento-tile bento-s neu-raised" id="tile-vni" style="display: none;">
+        <div class="bento-tile bento-s neu-raised telemetry-tile" id="tile-vni" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Vegetation (VNI)</h3>
             </div>
@@ -241,7 +529,7 @@
         </div>
 
         <!-- Wire List -->
-        <div class="bento-tile bento-xl neu-raised" id="tile-wires" style="display: none;">
+        <div class="bento-tile bento-xl neu-raised telemetry-tile" id="tile-wires" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Detected Wires</h3>
             </div>
@@ -251,11 +539,11 @@
         </div>
         
         <!-- Authenticity & Disclosures -->
-        <div class="bento-tile bento-l neu-raised" id="tile-disclosure" style="display: none;">
+        <div class="bento-tile bento-l neu-raised telemetry-tile" id="tile-disclosure" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Disclosures</h3>
             </div>
-            <div class="bento-tile-body" style="font-size: 0.85rem; color: var(--text-muted);">
+            <div class="bento-tile-body" style="font-size: 0.85rem;">
                 <p><strong>Authenticity:</strong> Analysis performed on the original image.</p>
                 <p><strong>Enhancement:</strong> A separate copy is used for contrast enhancement for detection.</p>
             </div>
@@ -266,7 +554,7 @@
     <div class="neu-modal-overlay" id="calibration-modal" role="dialog" aria-modal="true" aria-labelledby="cal-title">
         <div class="neu-modal neu-raised">
             <h2 id="cal-title">Manual Calibration</h2>
-            <p class="bento-tile-subtext">Click 2 points on a known object (e.g. pole) to set scale, or click 3 points on a wire (2 anchors, 1 lowest) for manual sag.</p>
+            <p class="bento-tile-subtext">Click 2 points on a reference object (e.g. pole) of known real-world length to calibrate scale.</p>
             
             <div id="canvas-modal-container">
                 <img id="calibration-img" alt="Calibration View" crossorigin="use-credentials">
