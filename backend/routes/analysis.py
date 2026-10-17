@@ -94,6 +94,13 @@ async def upload_image(
     if main_state.is_config_failed():
         raise HTTPException(status_code=503, detail="Server configuration is invalid. Cannot process uploads.")
 
+    from backend.mock_detector import is_mock_mode
+    if not is_mock_mode() and not main_state.is_model_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Model not available. The detection model is not loaded on this server."
+        )
+
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in [".jpg", ".jpeg", ".png"]:
         raise HTTPException(status_code=400, detail="Invalid file type")

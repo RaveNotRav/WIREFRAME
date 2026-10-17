@@ -25,6 +25,24 @@ export function getWireClassColor(className) {
     return mapping[className] || 'var(--text-muted)';
 }
 
+export function formatWireClass(className) {
+    if (!className) return 'Unknown';
+    const known = {
+        'power_line': 'Power Line',
+        'telecom_cable': 'Telecom Cable',
+        'fiber_optic': 'Fiber Optic',
+        'dead_abandoned': 'Dead / Abandoned',
+        'pole': 'Utility Pole'
+    };
+    if (known[className]) return known[className];
+    return String(className)
+        .replace(/[_-]+/g, ' ')
+        .split(' ')
+        .filter(Boolean)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+}
+
 
 export function getSafetyPill(level) {
     if (!level) return '';

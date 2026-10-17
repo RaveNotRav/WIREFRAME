@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { getNaturalCoordinates } from './coordinates.js';
-import { escapeHtml, formatConfidence, getWireClassColor, parseDbTimestamp, formatDbTimestamp } from './formatters.js';
+import { escapeHtml, formatConfidence, getWireClassColor, formatWireClass, parseDbTimestamp, formatDbTimestamp } from './formatters.js';
 
 test('escapeHtml handles strings correctly', () => {
     // XSS payload
@@ -68,4 +68,13 @@ test('formatDbTimestamp formats in Asia/Manila (UTC+8)', () => {
     assert.strictEqual(dateOnly, '10/11/2026');
     
     assert.strictEqual(formatDbTimestamp(null), '--');
+});
+
+test('formatWireClass formats known classes and falls back to title case', () => {
+    assert.strictEqual(formatWireClass('power_line'), 'Power Line');
+    assert.strictEqual(formatWireClass('telecom_cable'), 'Telecom Cable');
+    assert.strictEqual(formatWireClass('utility_pole'), 'Utility Pole');
+    assert.strictEqual(formatWireClass('high_voltage-cable'), 'High Voltage Cable');
+    assert.strictEqual(formatWireClass(''), 'Unknown');
+    assert.strictEqual(formatWireClass(null), 'Unknown');
 });

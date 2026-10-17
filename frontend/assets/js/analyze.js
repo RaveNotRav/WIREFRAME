@@ -400,6 +400,15 @@ async function startAnalysis() {
     } catch (e) {
         console.error("Upload error:", e);
         showToast(e.message, 'error');
+        const tileProgress = document.getElementById('tile-progress');
+        if (tileProgress) tileProgress.style.display = 'block';
+        const reasonEl = document.getElementById('status-reason');
+        if (reasonEl) reasonEl.textContent = e.message;
+        const badge = document.getElementById('status-badge');
+        if (badge) {
+            badge.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="5"/></svg> Error`;
+            badge.setAttribute('data-risk', 'critical');
+        }
     }
 }
 

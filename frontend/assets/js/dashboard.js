@@ -1,5 +1,5 @@
 import { initTheme, toggleTheme } from './lib/theme.js';
-import { getSafetyPill, formatDbTimestamp, parseDbTimestamp, escapeHtml } from './lib/formatters.js';
+import { getSafetyPill, formatDbTimestamp, parseDbTimestamp, escapeHtml, formatWireClass } from './lib/formatters.js';
 
 function getRiskScorePill(score) {
     if (score === null || score === undefined) return '-';
@@ -232,27 +232,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         const container = document.getElementById('distribution-container');
         container.innerHTML = '';
         
-        const labels = {
-            'power_line': 'Power Line',
-            'telecom_cable': 'Telecom Cable',
-            'fiber_optic': 'Fiber Optic',
-            'dead_abandoned': 'Dead / Abandoned'
-        };
+        const defaultKeys = ['power_line', 'telecom_cable', 'fiber_optic', 'dead_abandoned'];
+        const allKeys = Array.from(new Set([...defaultKeys, ...Object.keys(dist || {})]));
         
         const percentages = calculateDistributionPercentages(dist);
         
-        for (const key of Object.keys(labels)) {
-            const val = dist[key] || 0;
+        for (const key of allKeys) {
+            const val = (dist && dist[key]) || 0;
             const pct = percentages[key] || 0;
+            const labelText = formatWireClass(key);
             
             const html = `
                 <div class="dist-item">
                     <div class="dist-label-row">
-                        <span>${labels[key]}</span>
+                        <span>${escapeHtml(labelText)}</span>
                         <span>${val} (${pct.toFixed(1)}%)</span>
                     </div>
                     <div class="dist-track">
-                        <div class="dist-fill" style="width: 0; background-color: var(--wire-${key});" data-width="${pct}%"></div>
+                        <div class="dist-fill" style="width: 0; background-color: var(--wire-${key}, var(--wire-power, #3b82f6));" data-width="${pct}%"></div>
                     </div>
                 </div>
             `;

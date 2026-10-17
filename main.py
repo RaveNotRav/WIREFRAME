@@ -29,10 +29,6 @@ _db_conn: Any = None
 def _validate_config():
     """STARTUP INTEGRITY CHECK (ConfigLoadFailure)."""
     try:
-        model_path = get_setting("model_path")
-        if not is_mock_mode() and not os.path.isfile(model_path):
-            raise FileNotFoundError(f"Model not found: {model_path}")
-            
         # Validate settings
         get_setting("pec_min_clearance_by_class")
         get_setting("safety_mapping")
@@ -65,18 +61,35 @@ async def lifespan(app: FastAPI):
         logger.error("Startup integrity check failed. Uploads will be rejected.")
     else:
         main_state.set_config_failed(False)
-        model_path = get_setting("model_path")
+        model_path = os.environ.get("WIREFRAME_MODEL_PATH") or get_setting("model_path") or "backend/models/wireframe_seg.pt"
+        from backend.utils.cv.segment import get_inference_params
+        inf_params = get_inference_params()
+        logger.info(
+            "Inference settings: conf=%.2f, iou=%.2f, device=%s, model_path=%s",
+            inf_params.get("conf", 0.25),
+            inf_params.get("iou", 0.70),
+            inf_params.get("device", "auto"),
+            model_path,
+        )
         if is_mock_mode():
             logger.warning("WIREFRAME_MOCK=1 - running with mock detector")
+            main_state.set_model_available(True)
         else:
-            try:
-                from ultralytics import YOLO
-                model = YOLO(model_path)
-                main_state.set_model(model)
-                logger.info("Model loaded: %s", model_path)
-            except Exception as exc:
-                main_state.set_config_failed(True)
-                logger.error(f"Failed to load model: {exc}")
+            if os.path.isfile(model_path):
+                try:
+                    from ultralytics import YOLO
+                    model = YOLO(model_path)
+                    main_state.set_model(model)
+                    main_state.set_model_available(True)
+                    logger.info("Model loaded: %s", model_path)
+                except Exception as exc:
+                    main_state.set_model(None)
+                    main_state.set_model_available(False)
+                    logger.error(f"Failed to load model: {exc}")
+            else:
+                main_state.set_model(None)
+                main_state.set_model_available(False)
+                logger.warning("Model file not found: %s. Uploads will return 503.", model_path)
 
     # Zombie recovery on startup
     # Mark stuck analyses as error
@@ -175,15 +188,26 @@ app.mount("/assets", StaticFiles(directory="frontend/assets"), name="assets")
 app.mount("/pages", StaticFiles(directory="frontend/pages"), name="pages")
 
 @app.get("/health", response_class=JSONResponse)
+@app.get("/api/health", response_class=JSONResponse)
 async def health() -> dict[str, Any]:
     if main_state.is_config_failed():
         return {"status": "error", "reason": "ConfigLoadFailure"}
-    model_status = "mock" if is_mock_mode() else ("loaded" if main_state.get_model() else "not_loaded")
+    is_mock = is_mock_mode()
+    model = main_state.get_model()
+    model_loaded = (model is not None)
+    model_status = "mock" if is_mock else ("loaded" if model_loaded else "not_loaded")
+    schema_ver = 0
+    try:
+        if _db_conn:
+            schema_ver = get_schema_version(_db_conn)
+    except Exception:
+        schema_ver = 0
     return {
         "status": "ok",
         "model_status": model_status,
-        "schema_version": get_schema_version(_db_conn) if _db_conn else 0,
-        "mock_mode": is_mock_mode(),
+        "model_loaded": model_loaded,
+        "schema_version": schema_ver,
+        "mock_mode": is_mock,
     }
 
 

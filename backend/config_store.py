@@ -48,11 +48,22 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "margin_of_error_pct": 20,
     "model_path": "backend/models/wireframe_seg.pt",
+    "class_aliases": {
+        "utility_pole": "pole",
+        "pole_utility": "pole",
+        "power-line": "power_line",
+        "power line": "power_line",
+        "telecom-cable": "telecom_cable",
+        "telecom cable": "telecom_cable",
+        "dead-abandoned": "dead_abandoned",
+        "dead abandoned": "dead_abandoned",
+    },
     "inference_params": {
         "conf": 0.25,
         "iou": 0.7,
         "imgsz": 1024,
         "retina_masks": True,
+        "device": "auto",
     },
     "severity_weights": {
         "high": 1.0,

@@ -11,10 +11,44 @@ import logging
 import cv2
 import numpy as np
 
+import os
+from typing import Any
+
 from backend.config_store import get_setting
 from backend.utils.cv.types import SegmentationResult
 
 logger = logging.getLogger(__name__)
+
+
+def get_inference_params() -> dict[str, Any]:
+    """Retrieve inference settings from env (WIREFRAME_CONF, WIREFRAME_IOU, WIREFRAME_DEVICE) or config store."""
+    params = get_setting("inference_params", {}) or {}
+
+    env_conf = os.getenv("WIREFRAME_CONF")
+    try:
+        conf = float(env_conf) if env_conf is not None else float(params.get("conf", 0.25))
+    except (ValueError, TypeError):
+        conf = 0.25
+
+    env_iou = os.getenv("WIREFRAME_IOU")
+    try:
+        iou = float(env_iou) if env_iou is not None else float(params.get("iou", 0.7))
+    except (ValueError, TypeError):
+        iou = 0.7
+
+    env_device = os.getenv("WIREFRAME_DEVICE")
+    device = env_device if env_device is not None else params.get("device", "auto")
+
+    imgsz = int(params.get("imgsz", 1024))
+    retina_masks = bool(params.get("retina_masks", True))
+
+    return {
+        "conf": conf,
+        "iou": iou,
+        "device": device,
+        "imgsz": imgsz,
+        "retina_masks": retina_masks,
+    }
 
 
 def segment_image(rgb_image: np.ndarray, model, original_shape: tuple[int, int]) -> SegmentationResult:
@@ -28,19 +62,20 @@ def segment_image(rgb_image: np.ndarray, model, original_shape: tuple[int, int])
     # contiguous BGR here so the model receives the correct channel ordering.
     bgr_image = np.ascontiguousarray(cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
 
-    params = get_setting("inference_params", {}) or {}
-    conf = params.get("conf", 0.25)
-    iou = params.get("iou", 0.7)
-    imgsz = params.get("imgsz", 1024)
-    retina_masks = params.get("retina_masks", True)
+    params = get_inference_params()
+    predict_kwargs = {
+        "conf": params["conf"],
+        "iou": params["iou"],
+        "imgsz": params["imgsz"],
+        "retina_masks": params["retina_masks"],
+        "verbose": False,
+    }
+    if params["device"] and str(params["device"]).lower() != "auto":
+        predict_kwargs["device"] = params["device"]
 
     results = model(
         bgr_image,
-        conf=conf,
-        iou=iou,
-        imgsz=imgsz,
-        retina_masks=retina_masks,
-        verbose=False,
+        **predict_kwargs,
     )
     
     if not results:

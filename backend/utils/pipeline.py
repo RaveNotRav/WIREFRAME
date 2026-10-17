@@ -34,6 +34,21 @@ from backend.utils.clearance_helpers import (
 logger = logging.getLogger(__name__)
 
 WIRE_CLASSES = {"power_line", "telecom_cable", "fiber_optic", "dead_abandoned"}
+_UNKNOWN_CLASSES_LOGGED: set[str] = set()
+
+
+def resolve_class_name(raw_name: str, aliases: dict[str, str] | None = None) -> str:
+    """Resolve raw model class name through class_aliases setting and normalize it."""
+    if not raw_name:
+        return "unknown"
+    key = str(raw_name).strip().lower()
+    if aliases:
+        if key in aliases:
+            return normalize_class_name(aliases[key])
+        if str(raw_name) in aliases:
+            return normalize_class_name(aliases[str(raw_name)])
+    return normalize_class_name(raw_name)
+
 
 class PipelineState(str, enum.Enum):
     INITIALIZING = "Initializing"
@@ -116,7 +131,15 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 raise RuntimeError(f"Mock generator failed: {e}")
         else:
             if model is None:
-                raise RuntimeError("Model is missing in real mode")
+                logger.error("Model not available for analysis %s", analysis_id)
+                transition_state(conn, analysis_id, PipelineState.ERROR_RECOVERY, "Model not available")
+                conn.execute(
+                    "UPDATE analyses SET status = 'error', summary = 'Model not available', is_mock = 0 WHERE id = ?",
+                    (analysis_id,)
+                )
+                conn.commit()
+                transition_state(conn, analysis_id, PipelineState.IDLE, "Pipeline finished (error)")
+                return
             seg_res = segment_image(prep.rgb, model, prep.original_shape)
         
         wires = []
@@ -125,10 +148,11 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         pole_bbox = None
         best_pole_conf = -1.0
         
+        aliases = get_setting("class_aliases", {}) or {}
         if seg_res.mask_available:
             for i, cls_idx in enumerate(seg_res.classes):
                 raw_cls_name = seg_res.names.get(cls_idx, "unknown")
-                cls_name = normalize_class_name(raw_cls_name)
+                cls_name = resolve_class_name(raw_cls_name, aliases)
                 conf = seg_res.confidences[i] if i < len(seg_res.confidences) else 0.0
 
                 if cls_name == "pole":
@@ -147,6 +171,12 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                     severities.append(get_severity(conf))
                 else:
                     logger.debug("Skipping non-wire class: %s (confidence: %.2f)", cls_name, conf)
+                    if raw_cls_name not in _UNKNOWN_CLASSES_LOGGED:
+                        _UNKNOWN_CLASSES_LOGGED.add(raw_cls_name)
+                        logger.warning(
+                            "Unknown or unhandled model class '%s' (resolved: '%s', id: %s). Skipping detection.",
+                            raw_cls_name, cls_name, cls_idx
+                        )
 
         if len(wires) == 0:
             transition_state(conn, analysis_id, PipelineState.NO_WIRES_DETECTED, "Zero wires found")
@@ -281,13 +311,14 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             """UPDATE analyses 
                SET status = 'complete', vni = ?, max_crs = ?, barangay_risk = ?, risk_score = ?, dead_wire_count = ?, spectrum_path = ?, annotated_path = ?,
                    clearance_ok = ?, clearance_available = ?, pec_min_clearance_m = ?, sag_meters = ?, assumed_pole_height_m = ?,
-                   width = ?, height = ?, pole_bbox_json = ?, margin_error_m = ?
+                   width = ?, height = ?, pole_bbox_json = ?, margin_error_m = ?, is_mock = ?
                WHERE id = ?""",
             (
                 vni_res.vni, max_crs, barangay_risk, final_score, dead_wires, spectrum_path, annotated_path,
                 clearance_rollup["clearance_ok"], clearance_rollup["clearance_available"], clearance_rollup["pec_min_clearance_m"],
                 clearance_rollup["sag_meters"], assumed_pole_height_m,
                 prep.original_shape[1], prep.original_shape[0], json.dumps(pole_bbox) if pole_bbox else None, clearance_rollup["margin_error_m"],
+                1 if is_mock_mode() else 0,
                 analysis_id
             )
         )
