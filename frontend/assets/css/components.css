@@ -66,11 +66,26 @@ input:-webkit-autofill:active {
 
 /* Badge SVG Icon Colors */
 .neu-badge svg circle { fill: var(--text-muted); transition: fill 0.3s; }
-.neu-badge[data-risk="Safe"] svg circle { fill: var(--risk-low); }
-.neu-badge[data-risk="Caution"] svg circle { fill: var(--risk-moderate); }
-.neu-badge[data-risk="Unsafe"] svg circle { fill: var(--risk-high); }
-.neu-badge[data-risk="Critical"] svg circle { fill: var(--risk-critical); }
-.neu-badge[data-risk="neutral"] svg circle { fill: var(--color-warning); }
+.neu-badge[data-risk="Safe"] svg circle,
+.neu-badge[data-risk="safe"] svg circle,
+.neu-badge[data-risk="low"] svg circle,
+.neu-badge[data-risk="Low"] svg circle { fill: var(--badge-safe-dot, var(--risk-low)); }
+.neu-badge[data-risk="Caution"] svg circle,
+.neu-badge[data-risk="caution"] svg circle,
+.neu-badge[data-risk="medium"] svg circle,
+.neu-badge[data-risk="Moderate"] svg circle,
+.neu-badge[data-risk="moderate"] svg circle { fill: var(--badge-caution-dot, var(--risk-moderate)); }
+.neu-badge[data-risk="Unsafe"] svg circle,
+.neu-badge[data-risk="unsafe"] svg circle,
+.neu-badge[data-risk="high"] svg circle,
+.neu-badge[data-risk="High"] svg circle { fill: var(--badge-unsafe-dot, var(--risk-high)); }
+.neu-badge[data-risk="Critical"] svg circle,
+.neu-badge[data-risk="critical"] svg circle { fill: var(--badge-critical-dot, var(--risk-critical)); }
+.neu-badge[data-risk="neutral"] svg circle,
+.neu-badge[data-risk="Unknown"] svg circle,
+.neu-badge[data-risk="unknown"] svg circle,
+.neu-badge[data-risk="Incomplete"] svg circle,
+.neu-badge[data-risk="incomplete"] svg circle { fill: var(--badge-unknown-dot, var(--color-warning)); }
 
 .badge-no-wires {
     color: var(--color-warning);
@@ -365,3 +380,38 @@ option {
     background-color: var(--surface-bg);
     color: var(--text-primary);
 }
+
+/* Theme Toggle Button */
+.neu-theme-toggle {
+    background-color: var(--header-btn-bg) !important;
+    color: var(--header-btn-text) !important;
+    box-shadow: var(--neu-raised-sm);
+    transition: all 0.2s ease-in-out;
+}
+
+.neu-theme-toggle:hover {
+    filter: brightness(1.15);
+}
+
+.neu-theme-toggle:active {
+    box-shadow: var(--neu-pressed-sm) !important;
+}
+
+/* Unified button styling inside telemetry / HUD tiles */
+.telemetry-tile .neu-button {
+    background-color: var(--surface-instrument-card);
+    color: var(--text-instrument-primary);
+    border: 1px solid var(--surface-instrument-border-subtle);
+    box-shadow: var(--neu-raised-sm);
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+}
+
+.telemetry-tile .neu-button:hover {
+    border-color: var(--telemetry-cyan);
+    filter: brightness(1.05);
+}
+
+.telemetry-tile .neu-button:active {
+    box-shadow: var(--neu-pressed-sm);
+}
+

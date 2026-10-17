@@ -1,12 +1,7 @@
 /* global-header.css - Shared header for new Phase 6 pages */
 
 
-/* Static header button colors (Unified across themes) */
-:root {
-    --header-btn-bg: #1f2c38; /* Dark navy */
-    --header-btn-text: #c9a24b; /* Gold text */
-}
-
+/* Shared header button styling (controlled by tokens.css per theme) */
 
 .neu-header {
     display: flex;
@@ -46,21 +41,22 @@
     color: var(--header-btn-text) !important;
     text-decoration: none;
     font-weight: 500;
+    transition: filter 0.2s ease, transform 0.2s ease;
 }
 
-
-.neu-header-nav a:hover {
-    filter: brightness(1.1);
+.neu-header-nav a:hover,
+.neu-header-nav button:not(.neu-theme-toggle):hover {
+    filter: brightness(1.15);
 }
 
 .neu-header-userinfo, .neu-header-userinfo span {
     font-size: 0.9rem;
-    color: #c9a24b !important;
+    color: var(--header-btn-text) !important;
 }
 
 .neu-header-role {
     font-weight: 600;
-    color: #c9a24b !important;
+    color: var(--header-btn-text) !important;
     text-transform: capitalize;
 }
 
@@ -79,16 +75,17 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
+    box-shadow: var(--neu-raised-sm);
+    transition: filter 0.2s ease, transform 0.2s ease;
 }
 
 .neu-theme-toggle:hover {
-    color: var(--text-primary);
-    background: rgba(128,128,128,0.1);
+    filter: brightness(1.15);
 }
 
 .neu-header-nav a:focus-visible,
 .neu-theme-toggle:focus-visible {
-    outline: 2px solid #c9a24b !important;
+    outline: 2px solid var(--header-btn-text) !important;
     outline-offset: 2px;
 }
 

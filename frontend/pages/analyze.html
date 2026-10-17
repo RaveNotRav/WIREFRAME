@@ -109,7 +109,7 @@
         #vni-value {
             font-family: var(--font-family-mono) !important;
             font-variant-numeric: tabular-nums;
-            color: #F8FAFC !important;
+            color: var(--text-instrument-primary) !important;
             font-weight: 700;
             letter-spacing: -0.02em;
             text-shadow: 0 0 16px rgba(56, 189, 248, 0.25);
@@ -132,72 +132,130 @@
             letter-spacing: 0.05em;
         }
 
-        /* High-Contrast Risk Badges on Dark HUD */
+        /* High-Contrast Risk Badges on Dark HUD & Light Surface */
         .telemetry-tile .neu-badge,
         #status-badge {
             font-family: var(--font-family-mono);
             font-weight: 700;
             letter-spacing: 0.05em;
             border-radius: var(--radius-pill);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
 
         .telemetry-tile .neu-badge[data-risk="Safe"],
-        #status-badge[data-risk="Safe"] {
-            background: rgba(5, 150, 105, 0.25) !important;
-            color: #34D399 !important;
-            border: 1.5px solid #10B981 !important;
+        .telemetry-tile .neu-badge[data-risk="safe"],
+        .telemetry-tile .neu-badge[data-risk="low"],
+        .telemetry-tile .neu-badge[data-risk="Low"],
+        #status-badge[data-risk="Safe"],
+        #status-badge[data-risk="safe"],
+        #status-badge[data-risk="low"],
+        #status-badge[data-risk="Low"] {
+            background: var(--badge-safe-bg) !important;
+            color: var(--badge-safe-text) !important;
+            border: 1.5px solid var(--badge-safe-border) !important;
         }
         .telemetry-tile .neu-badge[data-risk="Safe"] svg circle,
-        #status-badge[data-risk="Safe"] svg circle {
-            fill: #34D399 !important;
+        .telemetry-tile .neu-badge[data-risk="safe"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="low"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="Low"] svg circle,
+        #status-badge[data-risk="Safe"] svg circle,
+        #status-badge[data-risk="safe"] svg circle,
+        #status-badge[data-risk="low"] svg circle,
+        #status-badge[data-risk="Low"] svg circle {
+            fill: var(--badge-safe-dot) !important;
         }
 
         .telemetry-tile .neu-badge[data-risk="Caution"],
-        #status-badge[data-risk="Caution"] {
-            background: rgba(217, 119, 6, 0.25) !important;
-            color: #FBBF24 !important;
-            border: 1.5px solid #F59E0B !important;
+        .telemetry-tile .neu-badge[data-risk="caution"],
+        .telemetry-tile .neu-badge[data-risk="medium"],
+        .telemetry-tile .neu-badge[data-risk="Moderate"],
+        .telemetry-tile .neu-badge[data-risk="moderate"],
+        #status-badge[data-risk="Caution"],
+        #status-badge[data-risk="caution"],
+        #status-badge[data-risk="medium"],
+        #status-badge[data-risk="Moderate"],
+        #status-badge[data-risk="moderate"] {
+            background: var(--badge-caution-bg) !important;
+            color: var(--badge-caution-text) !important;
+            border: 1.5px solid var(--badge-caution-border) !important;
         }
         .telemetry-tile .neu-badge[data-risk="Caution"] svg circle,
-        #status-badge[data-risk="Caution"] svg circle {
-            fill: #FBBF24 !important;
+        .telemetry-tile .neu-badge[data-risk="caution"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="medium"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="Moderate"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="moderate"] svg circle,
+        #status-badge[data-risk="Caution"] svg circle,
+        #status-badge[data-risk="caution"] svg circle,
+        #status-badge[data-risk="medium"] svg circle,
+        #status-badge[data-risk="Moderate"] svg circle,
+        #status-badge[data-risk="moderate"] svg circle {
+            fill: var(--badge-caution-dot) !important;
         }
 
         .telemetry-tile .neu-badge[data-risk="Unsafe"],
-        #status-badge[data-risk="Unsafe"] {
-            background: rgba(234, 88, 12, 0.25) !important;
-            color: #FB923C !important;
-            border: 1.5px solid #EA580C !important;
+        .telemetry-tile .neu-badge[data-risk="unsafe"],
+        .telemetry-tile .neu-badge[data-risk="high"],
+        .telemetry-tile .neu-badge[data-risk="High"],
+        #status-badge[data-risk="Unsafe"],
+        #status-badge[data-risk="unsafe"],
+        #status-badge[data-risk="high"],
+        #status-badge[data-risk="High"] {
+            background: var(--badge-unsafe-bg) !important;
+            color: var(--badge-unsafe-text) !important;
+            border: 1.5px solid var(--badge-unsafe-border) !important;
         }
         .telemetry-tile .neu-badge[data-risk="Unsafe"] svg circle,
-        #status-badge[data-risk="Unsafe"] svg circle {
-            fill: #FB923C !important;
+        .telemetry-tile .neu-badge[data-risk="unsafe"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="high"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="High"] svg circle,
+        #status-badge[data-risk="Unsafe"] svg circle,
+        #status-badge[data-risk="unsafe"] svg circle,
+        #status-badge[data-risk="high"] svg circle,
+        #status-badge[data-risk="High"] svg circle {
+            fill: var(--badge-unsafe-dot) !important;
         }
 
         .telemetry-tile .neu-badge[data-risk="Critical"],
-        #status-badge[data-risk="Critical"] {
-            background: rgba(220, 38, 38, 0.3) !important;
-            color: #F87171 !important;
-            border: 1.5px solid #EF4444 !important;
+        .telemetry-tile .neu-badge[data-risk="critical"],
+        #status-badge[data-risk="Critical"],
+        #status-badge[data-risk="critical"] {
+            background: var(--badge-critical-bg) !important;
+            color: var(--badge-critical-text) !important;
+            border: 1.5px solid var(--badge-critical-border) !important;
             box-shadow: 0 0 16px rgba(239, 68, 68, 0.35) !important;
         }
         .telemetry-tile .neu-badge[data-risk="Critical"] svg circle,
-        #status-badge[data-risk="Critical"] svg circle {
-            fill: #F87171 !important;
+        .telemetry-tile .neu-badge[data-risk="critical"] svg circle,
+        #status-badge[data-risk="Critical"] svg circle,
+        #status-badge[data-risk="critical"] svg circle {
+            fill: var(--badge-critical-dot) !important;
         }
 
         .telemetry-tile .neu-badge[data-risk="Unknown"],
+        .telemetry-tile .neu-badge[data-risk="unknown"],
         .telemetry-tile .neu-badge[data-risk="Incomplete"],
+        .telemetry-tile .neu-badge[data-risk="incomplete"],
+        .telemetry-tile .neu-badge[data-risk="neutral"],
         #status-badge[data-risk="Unknown"],
-        #status-badge[data-risk="Incomplete"] {
-            background: rgba(100, 116, 139, 0.25) !important;
-            color: #CBD5E1 !important;
-            border: 1.5px solid #64748B !important;
+        #status-badge[data-risk="unknown"],
+        #status-badge[data-risk="Incomplete"],
+        #status-badge[data-risk="incomplete"],
+        #status-badge[data-risk="neutral"] {
+            background: var(--badge-unknown-bg) !important;
+            color: var(--badge-unknown-text) !important;
+            border: 1.5px solid var(--badge-unknown-border) !important;
         }
         .telemetry-tile .neu-badge[data-risk="Unknown"] svg circle,
-        #status-badge[data-risk="Unknown"] svg circle {
-            fill: #CBD5E1 !important;
+        .telemetry-tile .neu-badge[data-risk="unknown"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="Incomplete"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="incomplete"] svg circle,
+        .telemetry-tile .neu-badge[data-risk="neutral"] svg circle,
+        #status-badge[data-risk="Unknown"] svg circle,
+        #status-badge[data-risk="unknown"] svg circle,
+        #status-badge[data-risk="Incomplete"] svg circle,
+        #status-badge[data-risk="incomplete"] svg circle,
+        #status-badge[data-risk="neutral"] svg circle {
+            fill: var(--badge-unknown-dot) !important;
         }
 
         /* Safety Reasons List */
@@ -215,19 +273,19 @@
             padding: 16px;
         }
         #action-text {
-            color: #F8FAFC !important;
+            color: var(--text-instrument-primary) !important;
             font-weight: 600;
         }
 
         /* CRS Gauge Styling */
         #crs-gauge {
-            background: #070A0F !important;
-            border: 1px solid rgba(255, 255, 255, 0.12) !important;
+            background: var(--gauge-track) !important;
+            border: 1px solid var(--surface-instrument-border-subtle) !important;
             height: 18px;
-            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
         }
         .neu-gauge-marker {
-            background: rgba(255, 255, 255, 0.25) !important;
+            background: var(--gauge-marker) !important;
         }
         #tile-crs .neu-gauge-container + div span {
             font-family: var(--font-family-mono);
@@ -263,7 +321,7 @@
         }
         #wire-list strong {
             font-family: var(--font-family-heading);
-            color: #F8FAFC;
+            color: var(--text-instrument-primary);
         }
         #wire-list div[style*="text-align:right"] {
             font-family: var(--font-family-mono);
@@ -333,17 +391,17 @@
 
 
     <!-- Global Stepper -->
-    <div class="global-stepper" id="global-stepper" style="display: flex; justify-content: space-between; align-items: center; max-width: 600px; margin: 0 auto 30px auto; position: relative;">
+    <div class="global-stepper" id="global-stepper" style="display: flex; justify-content: space-between; align-items: center; max-width: 600px; width: 100%; box-sizing: border-box; padding: 0 16px; margin: 0 auto 30px auto; position: relative;">
         <div style="position: absolute; top: 16px; left: 10%; right: 10%; height: 2px; background: var(--border-subtle); z-index: 1;"></div>
         
         <div class="stepper-step active" id="step-upload" style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px;">
             <div class="step-circle" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; justify-content: center; align-items: center; font-weight: bold; box-shadow: var(--neu-raised-sm);">1</div>
-            <span>Upload</span>
+            <span style="color: var(--text-primary); font-weight: 600;">Upload</span>
         </div>
         
         <div class="stepper-step" id="step-processing" style="position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 8px;">
             <div class="step-circle" style="width: 32px; height: 32px; border-radius: 50%; background: var(--surface-bg); border: 2px solid var(--border-subtle); color: var(--text-secondary); display: flex; justify-content: center; align-items: center; font-weight: bold; opacity: 0.75;">2</div>
-            <span>Processing</span>
+            <span style="color: var(--text-muted); font-weight: 500;">Processing</span>
         </div>
     </div>
 
@@ -421,8 +479,8 @@
                 <h3 class="bento-tile-title">Pipeline Status</h3>
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <span class="neu-badge" id="status-badge" data-risk="Unknown">Queued</span>
-                    <button class="neu-button neu-flat" id="btn-cancel" style="padding: 6px 12px; font-size: 0.85rem; min-height: 44px; display: none;">Cancel</button>
-                    <a href="#" id="btn-download-pdf" target="_blank" class="neu-button neu-flat" style="padding: 6px 12px; font-size: 0.85rem; min-height: 44px; display: none; align-items: center;" download>Download PDF</a>
+                    <button class="neu-button neu-raised-sm" id="btn-cancel" style="padding: 6px 12px; font-size: 0.85rem; min-height: 44px; display: none;">Cancel</button>
+                    <a href="#" id="btn-download-pdf" target="_blank" class="neu-button neu-raised-sm" style="padding: 6px 12px; font-size: 0.85rem; min-height: 44px; display: none; align-items: center;" download>Download PDF</a>
                 </div>
             </div>
             <div class="bento-tile-body">
@@ -575,7 +633,7 @@
                     <input type="number" id="cal-length" class="neu-input" min="0.1" max="100" step="0.1" placeholder="e.g. 10">
                 </div>
                 <button class="neu-button neu-raised" id="btn-cal-submit">Calibrate</button>
-                <button class="neu-button neu-flat" id="btn-cal-cancel">Cancel</button>
+                <button class="neu-button neu-raised-sm" id="btn-cal-cancel">Cancel</button>
             </div>
             <div id="cal-points-list" style="margin-top: 12px; font-size: 0.85rem; color: var(--text-secondary);" aria-live="polite">
                 Points selected: 0
@@ -589,7 +647,7 @@
             <div style="width: 64px; height: 64px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto;">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
             </div>
-            <h2 style="margin-top: 0; color: var(--text-main);">Report Received</h2>
+            <h2 style="margin-top: 0; color: var(--text-primary);">Report Received</h2>
             <p style="color: var(--text-muted); font-size: 1.05rem; margin-bottom: 24px;">Your report has been received and processed. Thank you for helping keep your community safe. Our team will review this data.</p>
             <button class="neu-button neu-raised" onclick="document.getElementById('public-confirmation-modal').classList.remove('open')" style="width: 100%;">Close & View Results</button>
         </div>

@@ -15,7 +15,7 @@
             align-items: center;
             height: 100vh;
             margin: 0;
-            background-color: #1a1d20 !important;
+            background-color: var(--surface-bg) !important;
             background-image: url('/assets/img/login-bg.png?v=3') !important;
             background-size: cover !important;
             background-position: center !important;
@@ -93,9 +93,9 @@
             padding: 14px;
             border-radius: var(--radius-control, 12px);
             border: none;
-            background-color: #D4A359;
-            color: #1a1d20;
-            box-shadow: var(--neu-raised);
+            background: var(--color-accent-gradient);
+            color: #FFFFFF;
+            box-shadow: var(--color-accent-glow), var(--neu-raised-sm);
             font-size: 1.1rem;
             font-weight: bold;
             cursor: pointer;
@@ -106,16 +106,12 @@
         }
         
         .btn-primary-fixed:hover {
-            filter: brightness(1.1);
+            background: var(--color-accent-gradient-hover);
+            filter: brightness(1.05);
         }
         
         .btn-primary-fixed:active {
-            box-shadow: var(--neu-pressed);
-        }
-        
-        [data-theme="light"] .btn-primary-fixed {
-            background-color: var(--color-primary);
-            color: white;
+            box-shadow: var(--neu-pressed-sm);
         }
     </style>
 </head>

@@ -104,31 +104,32 @@
         .neu-button-lg {
             padding: 16px 48px;
             font-size: 1.25rem;
-            font-weight: bold;
+            font-weight: 700;
+            font-family: var(--font-family-heading);
             text-decoration: none;
             display: inline-block;
             text-align: center;
-            /* Unified button style */
-            background-color: #1f2c38 !important;
-            color: #c9a24b !important;
+            background: var(--color-accent-gradient) !important;
+            color: #FFFFFF !important;
             border-radius: var(--radius-pill);
-            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            box-shadow: var(--color-accent-glow), 0 8px 16px rgba(0,0,0,0.15);
             transition: transform 0.2s, box-shadow 0.2s, outline 0.2s;
             border: none;
         }
 
         .neu-button-lg:focus-visible {
-            outline: 2px solid #c9a24b !important;
+            outline: 2px solid var(--color-primary) !important;
             outline-offset: 2px;
         }
 
         .neu-button-lg:hover {
             transform: translateY(-2px);
-            box-shadow: 0 12px 20px rgba(0,0,0,0.3);
+            background: var(--color-accent-gradient-hover) !important;
+            box-shadow: var(--color-accent-glow), 0 12px 20px rgba(0,0,0,0.25);
         }
         .neu-button-lg:active {
             transform: translateY(1px) !important;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.4) !important;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3) !important;
         }
         
         @media (max-width: 768px) {

@@ -55,20 +55,22 @@
     --text-muted: #64748B;
     --text-disabled: #94A3B8;
 
-    /* High-Contrast Technical / Telemetry Layer (Analyze HUD & Dashboard Instruments) */
-    --surface-instrument: #0F172A;            /* Deep Slate Engineering HUD */
-    --surface-instrument-card: #1E293B;       /* Internal instrument card */
-    --surface-instrument-card-subtle: #243248;
-    --surface-instrument-border: rgba(56, 189, 248, 0.28); /* Cyan hairline edge */
-    --surface-instrument-border-subtle: rgba(148, 163, 184, 0.18);
-    --text-instrument-primary: #F8FAFC;       /* High-contrast crisp white */
-    --text-instrument-secondary: #CBD5E1;     /* High-legibility technical secondary */
-    --text-instrument-muted: #94A3B8;         /* Micro-labels / units */
-    --telemetry-cyan: #38BDF8;                /* Primary readout highlight */
-    --telemetry-emerald: #34D399;             /* Compliant / safe signal */
-    --telemetry-amber: #FBBF24;               /* Warning signal */
-    --telemetry-orange: #FB923C;              /* Unsafe signal */
-    --telemetry-rose: #F87171;                /* Critical / danger signal */
+    /* Technical / Telemetry Layer (Analyze HUD & Dashboard Instruments) - Light Surface */
+    --surface-instrument: #F1F5F9;
+    --surface-instrument-card: #FFFFFF;
+    --surface-instrument-card-subtle: #E2E8F0;
+    --surface-instrument-border: rgba(37, 99, 235, 0.22);
+    --surface-instrument-border-subtle: rgba(148, 163, 184, 0.25);
+    --text-instrument-primary: #0F172A;
+    --text-instrument-secondary: #334155;
+    --text-instrument-muted: #64748B;
+    --telemetry-cyan: #0284C7;
+    --telemetry-emerald: #059669;
+    --telemetry-amber: #D97706;
+    --telemetry-orange: #EA580C;
+    --telemetry-rose: #DC2626;
+    --gauge-track: #E2E8F0;
+    --gauge-marker: rgba(15, 23, 42, 0.25);
 
     /* Neumorphic Shadows (Tactile feel preserved) */
     --shadow-light: #ffffff;
@@ -102,7 +104,29 @@
     --risk-high-bg: rgba(234, 88, 12, 0.15);
     --risk-critical: #DC2626;  /* Critical / Danger Red */
     --risk-critical-bg: rgba(220, 38, 38, 0.15);
-    
+
+    /* Badges & Pills - High Contrast Semantic Risk Tokens (Light Theme) */
+    --badge-safe-bg: rgba(5, 150, 105, 0.12);
+    --badge-safe-text: #065F46;
+    --badge-safe-border: #059669;
+    --badge-safe-dot: #059669;
+    --badge-caution-bg: rgba(217, 119, 6, 0.12);
+    --badge-caution-text: #92400E;
+    --badge-caution-border: #D97706;
+    --badge-caution-dot: #D97706;
+    --badge-unsafe-bg: rgba(234, 88, 12, 0.12);
+    --badge-unsafe-text: #9A3412;
+    --badge-unsafe-border: #EA580C;
+    --badge-unsafe-dot: #EA580C;
+    --badge-critical-bg: rgba(220, 38, 38, 0.12);
+    --badge-critical-text: #991B1B;
+    --badge-critical-border: #DC2626;
+    --badge-critical-dot: #DC2626;
+    --badge-unknown-bg: rgba(100, 116, 139, 0.12);
+    --badge-unknown-text: #334155;
+    --badge-unknown-border: #64748B;
+    --badge-unknown-dot: #64748B;
+
     /* Semantic Colors - Wire Classes (Including legacy & shorthand aliases) */
     --wire-power: #DC2626;
     --wire-power_line: #DC2626;
@@ -113,31 +137,86 @@
     --wire-dead: #9333EA;
     --wire-dead_abandoned: #9333EA;
 
-    /* Hero Image Overlays */
-    --hero-overlay-gradient: linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 58, 138, 0.75) 60%, rgba(15, 23, 42, 0.85) 100%);
-    --hero-text-color: #FFFFFF;
-    --hero-pole-fill: #64748B;
-    --hero-pole-stroke: #334155;
-    --hero-wire-stroke: #38BDF8;
+    /* Hero Image Overlays (Light Theme) */
+    --hero-overlay-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(228, 233, 240, 0.85) 55%, rgba(219, 234, 254, 0.78) 100%);
+    --hero-text-color: #0F172A;
+    --hero-pole-fill: #94A3B8;
+    --hero-pole-stroke: #475569;
+    --hero-wire-stroke: #2563EB;
+
+    /* Header Button Colors (Light Theme: Navy + Gold) */
+    --header-btn-bg: #1f2c38;
+    --header-btn-text: #c9a24b;
 
     /* Generic UI Colors */
     --color-error: #DC2626;
     --color-success: #059669;
     --color-warning: #D97706;
+
+    /* Backward compatibility aliases */
+    --primary: var(--color-primary);
+    --text-main: var(--text-primary);
+    --surface: var(--surface-bg);
+    --shadow-raised: var(--neu-raised);
+    --shadow-neu-pressed: var(--neu-pressed);
+    --shadow-neu-raised: var(--neu-raised);
+    --transition-fast: 0.15s ease;
 }
 
 [data-theme="dark"] {
     color-scheme: dark;
-    /* Base Surface */
-    --surface-bg: #0B0F17;
+
+    /* Spacing Grid (4px scale preserved) */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-2xl: 48px;
+
+    /* Font Sizes */
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-md: 1rem;
+    --font-size-lg: 1.125rem;
+    --font-size-xl: 1.35rem;
+    --font-size-2xl: 1.75rem;
+    --font-size-3xl: 2.25rem;
+    --font-size-hero: 3.5rem;
+
+    /* Font Weights */
+    --font-weight-regular: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --font-weight-bold: 700;
+    --font-weight-extrabold: 800;
+
+    /* Typography Stacks */
+    --font-family-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-family-heading: 'Space Grotesk', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-family-mono: 'JetBrains Mono', 'SF Mono', Monaco, Menlo, Consolas, "Liberation Mono", monospace;
+    --font-family: var(--font-family-body);
+
+    /* Extra Radii */
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-tile: 20px;
+    --radius-control: 12px;
+    --radius-pill: 9999px;
+
+    --surface-raised: rgba(128, 128, 128, 0.15);
     --surface-sunken: #070A0F;
     --bg-card-alt: #161F2E;
+
+    /* Base Surface */
+    --surface-bg: #0B0F17;
     --text-primary: #F8FAFC;
     --text-secondary: #CBD5E1;
     --text-muted: #94A3B8;
     --text-disabled: #475569;
 
-    /* High-Contrast Technical / Telemetry Layer */
+    /* High-Contrast Technical / Telemetry Layer (Analyze HUD & Dashboard Instruments) - Dark HUD */
     --surface-instrument: #070A0F;
     --surface-instrument-card: #0F172A;
     --surface-instrument-card-subtle: #162032;
@@ -146,28 +225,103 @@
     --text-instrument-primary: #F8FAFC;
     --text-instrument-secondary: #CBD5E1;
     --text-instrument-muted: #94A3B8;
+    --telemetry-cyan: #38BDF8;
+    --telemetry-emerald: #34D399;
+    --telemetry-amber: #FBBF24;
+    --telemetry-orange: #FB923C;
+    --telemetry-rose: #F87171;
+    --gauge-track: #070A0F;
+    --gauge-marker: rgba(255, 255, 255, 0.25);
 
     /* Neumorphic Shadows for dark base */
     --shadow-light: #162032;
     --shadow-dark: #04060A;
+    --neu-raised: -8px -8px 16px var(--shadow-light), 8px 8px 16px var(--shadow-dark);
+    --neu-raised-sm: -4px -4px 8px var(--shadow-light), 4px 4px 8px var(--shadow-dark);
+    --neu-pressed: inset -4px -4px 8px var(--shadow-light), inset 4px 4px 8px var(--shadow-dark);
+    --neu-pressed-sm: inset -2px -2px 4px var(--shadow-light), inset 2px 2px 4px var(--shadow-dark);
+    --neu-inset: var(--neu-pressed);
 
-    /* Borders */
+    /* Electric Precision Cobalt Palette */
+    --color-primary: #38BDF8;
+    --color-primary-hover: #60A5FA;
+    --color-primary-light: rgba(56, 189, 248, 0.15);
+    --color-accent-gradient: linear-gradient(135deg, #0284C7 0%, #2563EB 50%, #38BDF8 100%);
+    --color-accent-gradient-hover: linear-gradient(135deg, #0369A1 0%, #1D4ED8 50%, #0284C7 100%);
+    --color-accent-glow: 0 4px 20px rgba(56, 189, 248, 0.3);
+
+    /* Borders & Focus */
     --border-subtle: 1px solid rgba(255, 255, 255, 0.1);
     --border-accent: 1px solid rgba(56, 189, 248, 0.4);
     --focus-ring: 3px solid #38BDF8;
 
-    /* Generic UI Colors */
-    --color-primary: #38BDF8;
-    --color-primary-hover: #60A5FA;
-    --color-accent-gradient: linear-gradient(135deg, #0284C7 0%, #2563EB 50%, #38BDF8 100%);
-    --color-accent-glow: 0 4px 20px rgba(56, 189, 248, 0.3);
-
-    /* Risk colors */
+    /* Semantic Colors - Risk (PEC 2017) */
     --risk-low: #10B981;
+    --risk-low-bg: rgba(16, 185, 129, 0.15);
     --risk-moderate: #FBBF24;
     --risk-medium: #FBBF24;
+    --risk-moderate-bg: rgba(251, 191, 36, 0.15);
     --risk-high: #FB923C;
+    --risk-high-bg: rgba(251, 146, 60, 0.15);
     --risk-critical: #F87171;
+    --risk-critical-bg: rgba(248, 113, 113, 0.15);
+
+    /* Badges & Pills - High Contrast Semantic Risk Tokens (Dark Theme HUD) */
+    --badge-safe-bg: rgba(5, 150, 105, 0.25);
+    --badge-safe-text: #34D399;
+    --badge-safe-border: #10B981;
+    --badge-safe-dot: #34D399;
+    --badge-caution-bg: rgba(217, 119, 6, 0.25);
+    --badge-caution-text: #FBBF24;
+    --badge-caution-border: #F59E0B;
+    --badge-caution-dot: #FBBF24;
+    --badge-unsafe-bg: rgba(234, 88, 12, 0.25);
+    --badge-unsafe-text: #FB923C;
+    --badge-unsafe-border: #EA580C;
+    --badge-unsafe-dot: #FB923C;
+    --badge-critical-bg: rgba(220, 38, 38, 0.3);
+    --badge-critical-text: #F87171;
+    --badge-critical-border: #EF4444;
+    --badge-critical-dot: #F87171;
+    --badge-unknown-bg: rgba(100, 116, 139, 0.25);
+    --badge-unknown-text: #CBD5E1;
+    --badge-unknown-border: #64748B;
+    --badge-unknown-dot: #CBD5E1;
+
+    /* Semantic Colors - Wire Classes */
+    --wire-power: #DC2626;
+    --wire-power_line: #DC2626;
+    --wire-telecom: #059669;
+    --wire-telecom_cable: #059669;
+    --wire-fiber: #2563EB;
+    --wire-fiber_optic: #2563EB;
+    --wire-dead: #9333EA;
+    --wire-dead_abandoned: #9333EA;
+
+    /* Hero Image Overlays (Dark Theme Cobalt / HUD) */
+    --hero-overlay-gradient: linear-gradient(135deg, rgba(11, 15, 23, 0.92) 0%, rgba(30, 58, 138, 0.78) 55%, rgba(11, 15, 23, 0.88) 100%);
+    --hero-text-color: #F8FAFC;
+    --hero-pole-fill: #475569;
+    --hero-pole-stroke: #64748B;
+    --hero-wire-stroke: #38BDF8;
+
+    /* Header Button Colors (Dark Theme: Current HUD) */
+    --header-btn-bg: #162032;
+    --header-btn-text: #F8FAFC;
+
+    /* Generic UI Colors */
+    --color-error: #DC2626;
+    --color-success: #059669;
+    --color-warning: #D97706;
+
+    /* Backward compatibility aliases */
+    --primary: var(--color-primary);
+    --text-main: var(--text-primary);
+    --surface: var(--surface-bg);
+    --shadow-raised: var(--neu-raised);
+    --shadow-neu-pressed: var(--neu-pressed);
+    --shadow-neu-raised: var(--neu-raised);
+    --transition-fast: 0.15s ease;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -189,9 +343,21 @@
         --text-instrument-primary: #F8FAFC;
         --text-instrument-secondary: #CBD5E1;
         --text-instrument-muted: #94A3B8;
+        --telemetry-cyan: #38BDF8;
+        --telemetry-emerald: #34D399;
+        --telemetry-amber: #FBBF24;
+        --telemetry-orange: #FB923C;
+        --telemetry-rose: #F87171;
+        --gauge-track: #070A0F;
+        --gauge-marker: rgba(255, 255, 255, 0.25);
 
         --shadow-light: #162032;
         --shadow-dark: #04060A;
+        --neu-raised: -8px -8px 16px var(--shadow-light), 8px 8px 16px var(--shadow-dark);
+        --neu-raised-sm: -4px -4px 8px var(--shadow-light), 4px 4px 8px var(--shadow-dark);
+        --neu-pressed: inset -4px -4px 8px var(--shadow-light), inset 4px 4px 8px var(--shadow-dark);
+        --neu-pressed-sm: inset -2px -2px 4px var(--shadow-light), inset 2px 2px 4px var(--shadow-dark);
+        --neu-inset: var(--neu-pressed);
 
         --border-subtle: 1px solid rgba(255, 255, 255, 0.1);
         --border-accent: 1px solid rgba(56, 189, 248, 0.4);
@@ -199,13 +365,50 @@
 
         --color-primary: #38BDF8;
         --color-primary-hover: #60A5FA;
+        --color-primary-light: rgba(56, 189, 248, 0.15);
         --color-accent-gradient: linear-gradient(135deg, #0284C7 0%, #2563EB 50%, #38BDF8 100%);
+        --color-accent-gradient-hover: linear-gradient(135deg, #0369A1 0%, #1D4ED8 50%, #0284C7 100%);
         --color-accent-glow: 0 4px 20px rgba(56, 189, 248, 0.3);
 
         --risk-low: #10B981;
+        --risk-low-bg: rgba(16, 185, 129, 0.15);
         --risk-moderate: #FBBF24;
         --risk-medium: #FBBF24;
+        --risk-moderate-bg: rgba(251, 191, 36, 0.15);
         --risk-high: #FB923C;
+        --risk-high-bg: rgba(251, 146, 60, 0.15);
         --risk-critical: #F87171;
+        --risk-critical-bg: rgba(248, 113, 113, 0.15);
+
+        --badge-safe-bg: rgba(5, 150, 105, 0.25);
+        --badge-safe-text: #34D399;
+        --badge-safe-border: #10B981;
+        --badge-safe-dot: #34D399;
+        --badge-caution-bg: rgba(217, 119, 6, 0.25);
+        --badge-caution-text: #FBBF24;
+        --badge-caution-border: #F59E0B;
+        --badge-caution-dot: #FBBF24;
+        --badge-unsafe-bg: rgba(234, 88, 12, 0.25);
+        --badge-unsafe-text: #FB923C;
+        --badge-unsafe-border: #EA580C;
+        --badge-unsafe-dot: #FB923C;
+        --badge-critical-bg: rgba(220, 38, 38, 0.3);
+        --badge-critical-text: #F87171;
+        --badge-critical-border: #EF4444;
+        --badge-critical-dot: #F87171;
+        --badge-unknown-bg: rgba(100, 116, 139, 0.25);
+        --badge-unknown-text: #CBD5E1;
+        --badge-unknown-border: #64748B;
+        --badge-unknown-dot: #CBD5E1;
+
+        --hero-overlay-gradient: linear-gradient(135deg, rgba(11, 15, 23, 0.92) 0%, rgba(30, 58, 138, 0.78) 55%, rgba(11, 15, 23, 0.88) 100%);
+        --hero-text-color: #F8FAFC;
+        --hero-pole-fill: #475569;
+        --hero-pole-stroke: #64748B;
+        --hero-wire-stroke: #38BDF8;
+
+        --header-btn-bg: #162032;
+        --header-btn-text: #F8FAFC;
     }
 }
+
