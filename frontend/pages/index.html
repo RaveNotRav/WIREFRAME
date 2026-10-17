@@ -26,6 +26,10 @@
             background-image: url('/assets/img/hero-towers.png');
             background-size: cover;
             background-position: center;
+            transform-origin: center center;
+            animation: wf-bg-zoom 20s ease-in-out infinite alternate;
+            will-change: transform;
+            pointer-events: none;
             z-index: -2;
         }
 
@@ -67,24 +71,34 @@
             color: var(--hero-text-color);
         }
 
-        @keyframes fadeUpIn {
-            0% {
+        @keyframes wf-fade-up {
+            from {
                 opacity: 0;
-                transform: translateY(30px);
+                transform: translateY(16px);
             }
-            100% {
+            to {
                 opacity: 1;
                 transform: translateY(0);
             }
         }
-        
-        .animate-fade-up {
-            animation: fadeUpIn 0.8s ease-out both;
+
+        @keyframes wf-bg-zoom {
+            from {
+                transform: scale(1);
+            }
+            to {
+                transform: scale(1.08);
+            }
         }
 
-        .delay-1 { animation-delay: 0.1s; }
-        .delay-2 { animation-delay: 0.3s; }
-        .delay-3 { animation-delay: 0.5s; }
+        @keyframes wf-cta-glow {
+            0%, 100% {
+                box-shadow: var(--color-accent-glow), 0 8px 16px rgba(0, 0, 0, 0.15);
+            }
+            50% {
+                box-shadow: 0 0 24px rgba(37, 99, 235, 0.55), 0 8px 20px rgba(0, 0, 0, 0.22);
+            }
+        }
 
         .hero-title {
             font-size: 4rem;
@@ -92,6 +106,7 @@
             font-weight: 800;
             letter-spacing: -1px;
             text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            animation: wf-fade-up 0.6s ease-out 0.1s both;
         }
 
         .hero-tagline {
@@ -99,6 +114,7 @@
             line-height: 1.6;
             margin: 0 0 40px 0;
             opacity: 0.9;
+            animation: wf-fade-up 0.6s ease-out 0.25s both;
         }
 
         .neu-button-lg {
@@ -115,6 +131,12 @@
             box-shadow: var(--color-accent-glow), 0 8px 16px rgba(0,0,0,0.15);
             transition: transform 0.2s, box-shadow 0.2s, outline 0.2s;
             border: none;
+            animation: wf-fade-up 0.6s ease-out 0.4s both, wf-cta-glow 2.5s ease-in-out 1s infinite;
+        }
+
+        .neu-button-lg:hover,
+        .neu-button-lg:focus-visible {
+            animation-play-state: paused;
         }
 
         .neu-button-lg:focus-visible {
@@ -123,9 +145,9 @@
         }
 
         .neu-button-lg:hover {
-            transform: translateY(-2px);
+            transform: translateY(-2px) !important;
             background: var(--color-accent-gradient-hover) !important;
-            box-shadow: var(--color-accent-glow), 0 12px 20px rgba(0,0,0,0.25);
+            box-shadow: var(--color-accent-glow), 0 12px 20px rgba(0,0,0,0.25) !important;
         }
         .neu-button-lg:active {
             transform: translateY(1px) !important;
@@ -207,6 +229,26 @@
                 box-sizing: border-box;
             }
         }
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation: none !important;
+                transition: none !important;
+            }
+            .hero-background {
+                animation: none !important;
+                transform: none !important;
+            }
+            .hero-title,
+            .hero-tagline,
+            .neu-button-lg {
+                animation: none !important;
+                opacity: 1 !important;
+                transform: none !important;
+            }
+        }
     </style>
 </head>
 <body class="neu-app">
@@ -227,11 +269,11 @@
     </header>
 
     <div class="hero-content">
-        <h1 class="hero-title animate-fade-up delay-1">Diagnose Utility Hazards</h1>
-        <p class="hero-tagline animate-fade-up delay-2">
+        <h1 class="hero-title">Diagnose Utility Hazards</h1>
+        <p class="hero-tagline">
             A computer vision system that diagnoses overhead utility wire hazards using vegetation interference analysis via 2D FFT, catenary sag modeling, and ground clearance estimation against Philippine Electrical Code (PEC) minimums.
         </p>
-        <div class="animate-fade-up delay-3">
+        <div>
             <a href="/analyze.html" class="neu-button-lg">Analyze</a>
         </div>
     </div>

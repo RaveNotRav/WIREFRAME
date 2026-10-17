@@ -83,6 +83,35 @@ describe('Mobile Responsiveness CSS & HTML Breakpoints', () => {
         assert.doesNotMatch(phoneCss, /min-height\s*:\s*calc\([^)]*100vh/i, 'Must not use min-height: calc(... 100vh ...) which overflows with header');
     });
 
+    it('index.html defines entrance animations (wf-fade-up, wf-bg-zoom, wf-cta-glow) and respects prefers-reduced-motion', () => {
+        const indexHtml = fs.readFileSync(path.join(pagesDir, 'index.html'), 'utf8');
+
+        // Three keyframes exist
+        assert.match(indexHtml, /@keyframes\s+wf-fade-up\s*\{[^}]*translateY/i, 'Must define @keyframes wf-fade-up');
+        assert.match(indexHtml, /@keyframes\s+wf-bg-zoom\s*\{[^}]*scale/i, 'Must define @keyframes wf-bg-zoom');
+        assert.match(indexHtml, /@keyframes\s+wf-cta-glow\s*\{[^}]*box-shadow/i, 'Must define @keyframes wf-cta-glow');
+
+        // Hero elements use wf-fade-up
+        assert.match(indexHtml, /\.hero-title\s*\{[^}]*animation\s*:\s*[^;]*wf-fade-up/i, '.hero-title must use wf-fade-up');
+        assert.match(indexHtml, /\.hero-tagline\s*\{[^}]*animation\s*:\s*[^;]*wf-fade-up/i, '.hero-tagline must use wf-fade-up');
+        assert.match(indexHtml, /\.neu-button-lg\s*\{[^}]*animation\s*:\s*[^;]*wf-fade-up/i, 'CTA (.neu-button-lg) must use wf-fade-up');
+
+        // Background zoom on .hero-background
+        assert.match(indexHtml, /\.hero-background\s*\{[^}]*animation\s*:\s*[^;]*wf-bg-zoom/i, '.hero-background must use wf-bg-zoom');
+
+        // CTA subtle glow pulse
+        assert.match(indexHtml, /\.neu-button-lg\s*\{[^}]*animation\s*:\s*[^;]*wf-cta-glow/i, 'CTA (.neu-button-lg) must use wf-cta-glow');
+        assert.match(indexHtml, /\.neu-button-lg:(hover|focus-visible)[^{]*\{[^}]*animation-play-state\s*:\s*paused/i, 'CTA must pause animation on hover/focus');
+
+        // Accessibility: prefers-reduced-motion disables animations
+        const reducedMotionMatch = indexHtml.match(/@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)\s*\{([\s\S]*?)\n\s*<\/style>/i);
+        assert.ok(reducedMotionMatch, 'Must define @media (prefers-reduced-motion: reduce)');
+        const reducedMotionCss = reducedMotionMatch[1];
+        assert.match(reducedMotionCss, /animation\s*:\s*none/i, 'prefers-reduced-motion must set animation: none');
+        assert.match(reducedMotionCss, /opacity\s*:\s*1/i, 'prefers-reduced-motion must keep elements visible (opacity: 1)');
+        assert.match(reducedMotionCss, /transform\s*:\s*none/i, 'prefers-reduced-motion must remove transforms');
+    });
+
     it('analyze.html has no guest login, hides hamburger for guests, and keeps logged-in menu', () => {
         const analyzeHtml = fs.readFileSync(path.join(pagesDir, 'analyze.html'), 'utf8');
         const analyzeJs = fs.readFileSync(path.join(process.cwd(), 'frontend/assets/js/analyze.js'), 'utf8');
