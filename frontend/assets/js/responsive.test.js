@@ -83,13 +83,14 @@ describe('Mobile Responsiveness CSS & HTML Breakpoints', () => {
         assert.doesNotMatch(phoneCss, /min-height\s*:\s*calc\([^)]*100vh/i, 'Must not use min-height: calc(... 100vh ...) which overflows with header');
     });
 
-    it('index.html defines entrance animations (wf-fade-up, wf-bg-zoom, wf-cta-glow) and respects prefers-reduced-motion', () => {
+    it('index.html defines entrance animations (wf-fade-up, wf-bg-zoom, wf-cta-glow, wf-fade-in) and handles reduced motion and light overlay', () => {
         const indexHtml = fs.readFileSync(path.join(pagesDir, 'index.html'), 'utf8');
 
-        // Three keyframes exist
+        // Four keyframes exist
         assert.match(indexHtml, /@keyframes\s+wf-fade-up\s*\{[^}]*translateY/i, 'Must define @keyframes wf-fade-up');
         assert.match(indexHtml, /@keyframes\s+wf-bg-zoom\s*\{[^}]*scale/i, 'Must define @keyframes wf-bg-zoom');
         assert.match(indexHtml, /@keyframes\s+wf-cta-glow\s*\{[^}]*box-shadow/i, 'Must define @keyframes wf-cta-glow');
+        assert.match(indexHtml, /@keyframes\s+wf-fade-in\s*\{[^}]*opacity/i, 'Must define @keyframes wf-fade-in');
 
         // Hero elements use wf-fade-up
         assert.match(indexHtml, /\.hero-title\s*\{[^}]*animation\s*:\s*[^;]*wf-fade-up/i, '.hero-title must use wf-fade-up');
@@ -103,12 +104,27 @@ describe('Mobile Responsiveness CSS & HTML Breakpoints', () => {
         assert.match(indexHtml, /\.neu-button-lg\s*\{[^}]*animation\s*:\s*[^;]*wf-cta-glow/i, 'CTA (.neu-button-lg) must use wf-cta-glow');
         assert.match(indexHtml, /\.neu-button-lg:(hover|focus-visible)[^{]*\{[^}]*animation-play-state\s*:\s*paused/i, 'CTA must pause animation on hover/focus');
 
-        // Accessibility: prefers-reduced-motion disables animations
+        // Light theme overlay uses linear-gradient
+        assert.match(indexHtml, /\[data-theme=["']light["']\]\s+\.hero-overlay\s*\{[^}]*background\s*:\s*linear-gradient/i, 'Light theme hero overlay must use linear-gradient');
+
+        // Accessibility: prefers-reduced-motion uses wf-fade-in for title/tagline/CTA and disables movement/pulse
         const reducedMotionMatch = indexHtml.match(/@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)\s*\{([\s\S]*?)\n\s*<\/style>/i);
         assert.ok(reducedMotionMatch, 'Must define @media (prefers-reduced-motion: reduce)');
         const reducedMotionCss = reducedMotionMatch[1];
-        assert.match(reducedMotionCss, /animation\s*:\s*none/i, 'prefers-reduced-motion must set animation: none');
-        assert.match(reducedMotionCss, /opacity\s*:\s*1/i, 'prefers-reduced-motion must keep elements visible (opacity: 1)');
+
+        // No blanket * animation: none
+        assert.doesNotMatch(reducedMotionCss, /\*\s*\{[^}]*animation\s*:\s*none/i, 'Must not have blanket * animation: none');
+
+        // Uses wf-fade-in for text/CTA
+        assert.match(reducedMotionCss, /\.hero-title[^{]*\{[^}]*wf-fade-in/i, 'prefers-reduced-motion must use wf-fade-in for hero-title');
+        assert.match(reducedMotionCss, /\.hero-tagline[^{]*\{[^}]*wf-fade-in/i, 'prefers-reduced-motion must use wf-fade-in for hero-tagline');
+        assert.match(reducedMotionCss, /\.neu-button-lg[^{]*\{[^}]*wf-fade-in/i, 'prefers-reduced-motion must use wf-fade-in for CTA');
+
+        // Disables background zoom and CTA glow pulse
+        assert.match(reducedMotionCss, /\.hero-background\s*\{[^}]*animation\s*:\s*none/i, 'prefers-reduced-motion must disable background zoom');
+        assert.doesNotMatch(reducedMotionCss, /wf-cta-glow/i, 'prefers-reduced-motion must disable CTA glow pulse');
+
+        // Removes transforms
         assert.match(reducedMotionCss, /transform\s*:\s*none/i, 'prefers-reduced-motion must remove transforms');
     });
 
@@ -163,5 +179,24 @@ describe('Mobile Responsiveness CSS & HTML Breakpoints', () => {
                 `${page} must include the exact desktop notice text`
             );
         }
+    });
+
+    it('index.html styles #nav-login and the theme toggle with accent gradient, white text, and hover rule', () => {
+        const indexHtml = fs.readFileSync(path.join(pagesDir, 'index.html'), 'utf8');
+        assert.match(
+            indexHtml,
+            /#theme-toggle[^{]*\{[^}]*background[^:]*:\s*var\(--color-accent-gradient\)[^}]*color\s*:\s*(#fff|#ffffff|white)/i,
+            'Landing theme toggle must be styled with var(--color-accent-gradient) and white text'
+        );
+        assert.match(
+            indexHtml,
+            /#nav-login[^{]*\{[^}]*background[^:]*:\s*var\(--color-accent-gradient\)[^}]*color\s*:\s*(#fff|#ffffff|white)/i,
+            'Landing #nav-login must be styled with var(--color-accent-gradient) and white text'
+        );
+        assert.match(
+            indexHtml,
+            /(#nav-login|#theme-toggle):hover[^{]*\{[^}]*var\(--color-accent-gradient-hover\)/i,
+            'Landing header buttons must have a hover rule with var(--color-accent-gradient-hover)'
+        );
     });
 });
