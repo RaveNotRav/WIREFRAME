@@ -228,6 +228,99 @@ describe('theme.js unit tests', () => {
             assert.ok(lightProps.has('--header-btn-text'), '--header-btn-text in light theme');
             assert.ok(darkProps.has('--header-btn-text'), '--header-btn-text in dark theme');
         });
+
+        it('defines --heading-color for light and dark, preserves dark heading color, and applies to key heading selectors', async () => {
+            const fs = await import('node:fs');
+            const path = await import('node:path');
+            const tokensPath = path.resolve(process.cwd(), 'frontend/assets/css/tokens.css');
+            const css = fs.readFileSync(tokensPath, 'utf8');
+
+            function extractBlock(marker, content) {
+                const idx = content.indexOf(marker);
+                if (idx === -1) return '';
+                const openBrace = content.indexOf('{', idx);
+                let depth = 1;
+                let pos = openBrace + 1;
+                while (depth > 0 && pos < content.length) {
+                    if (content[pos] === '{') depth++;
+                    else if (content[pos] === '}') depth--;
+                    pos++;
+                }
+                return content.slice(openBrace + 1, pos - 1);
+            }
+
+            const lightBlock = extractBlock('data-theme="light"', css);
+            const darkBlock = extractBlock('data-theme="dark"', css);
+
+            // 1. tokens.css defines --heading-color for light and dark
+            assert.match(lightBlock, /--heading-color\s*:\s*#8A6417/i, 'Light theme must define gold --heading-color');
+            assert.match(darkBlock, /--heading-color\s*:\s*(#F8FAFC|var\(--text-primary\))/i, 'Dark theme must define --heading-color');
+
+            // 2. dark value equals previous dark heading color (#F8FAFC / --text-primary)
+            const darkMatch = darkBlock.match(/--heading-color\s*:\s*([^;]+);/);
+            assert.ok(darkMatch, '--heading-color declared in dark theme');
+            const darkVal = darkMatch[1].trim();
+            assert.equal(darkVal, '#F8FAFC', 'Dark heading color must equal previous dark heading color (#F8FAFC)');
+
+            // 3. key heading selectors use var(--heading-color)
+            const neuPath = path.resolve(process.cwd(), 'frontend/assets/css/neumorphism.css');
+            const neuCss = fs.readFileSync(neuPath, 'utf8');
+            assert.match(neuCss, /h1,\s*h2,\s*h3,\s*h4[^{]*\{[^}]*color\s*:\s*var\(--heading-color\)/i, 'h1-h4 must use var(--heading-color) in neumorphism.css');
+            assert.match(neuCss, /\.page-title[^{]*\{[^}]*color\s*:\s*var\(--heading-color\)/i, '.page-title must use var(--heading-color) in neumorphism.css');
+            assert.match(neuCss, /\.bento-tile-title[^{]*\{[^}]*color\s*:\s*var\(--heading-color\)/i, '.bento-tile-title must use var(--heading-color) in neumorphism.css');
+
+            const bentoPath = path.resolve(process.cwd(), 'frontend/assets/css/bento.css');
+            const bentoCss = fs.readFileSync(bentoPath, 'utf8');
+            assert.match(bentoCss, /\.bento-tile-title\s*\{[^}]*color\s*:\s*var\(--heading-color\)/i, '.bento-tile-title in bento.css must use var(--heading-color)');
+
+            const compPath = path.resolve(process.cwd(), 'frontend/assets/css/components.css');
+            const compCss = fs.readFileSync(compPath, 'utf8');
+            assert.match(compCss, /\.neu-modal\s+h[1-4][^{]*\{[^}]*color\s*:\s*var\(--heading-color\)/i, 'modal headings in components.css must use var(--heading-color)');
+        });
+
+        it('defines --heading-color-strong for light and dark, preserves dark label parity, and applies to stat selectors', async () => {
+            const fs = await import('node:fs');
+            const path = await import('node:path');
+            const tokensPath = path.resolve(process.cwd(), 'frontend/assets/css/tokens.css');
+            const css = fs.readFileSync(tokensPath, 'utf8');
+
+            function extractBlock(marker, content) {
+                const idx = content.indexOf(marker);
+                if (idx === -1) return '';
+                const openBrace = content.indexOf('{', idx);
+                let depth = 1;
+                let pos = openBrace + 1;
+                while (depth > 0 && pos < content.length) {
+                    if (content[pos] === '{') depth++;
+                    else if (content[pos] === '}') depth--;
+                    pos++;
+                }
+                return content.slice(openBrace + 1, pos - 1);
+            }
+
+            const lightBlock = extractBlock('data-theme="light"', css);
+            const darkBlock = extractBlock('data-theme="dark"', css);
+
+            // 1. tokens.css defines --heading-color-strong for light and dark
+            assert.match(lightBlock, /--heading-color-strong\s*:\s*#7A5811/i, 'Light theme must define gold --heading-color-strong');
+            assert.match(darkBlock, /--heading-color-strong\s*:\s*#CBD5E1/i, 'Dark theme must define --heading-color-strong');
+
+            // 2. dark value equals previous dark label color (#CBD5E1 / --text-secondary)
+            const darkMatch = darkBlock.match(/--heading-color-strong\s*:\s*([^;]+);/);
+            assert.ok(darkMatch, '--heading-color-strong declared in dark theme');
+            const darkVal = darkMatch[1].trim();
+            assert.equal(darkVal, '#CBD5E1', 'Dark label color must equal previous dark label color (#CBD5E1)');
+
+            // 3. stat value and label selectors use the tokens
+            const dashPath = path.resolve(process.cwd(), 'frontend/pages/dashboard.html');
+            const dashHtml = fs.readFileSync(dashPath, 'utf8');
+            assert.match(dashHtml, /\.kpi-value[^{]*\{[^}]*color\s*:\s*var\(--heading-color\)/i, '.kpi-value must use var(--heading-color) in dashboard.html');
+            assert.match(dashHtml, /\.kpi-label[^{]*\{[^}]*color\s*:\s*var\(--heading-color-strong\)/i, '.kpi-label must use var(--heading-color-strong) in dashboard.html');
+
+            const bentoPath = path.resolve(process.cwd(), 'frontend/assets/css/bento.css');
+            const bentoCss = fs.readFileSync(bentoPath, 'utf8');
+            assert.match(bentoCss, /\.bento-tile-value\s*\{[^}]*color\s*:\s*var\(--heading-color\)/i, '.bento-tile-value in bento.css must use var(--heading-color)');
+        });
     });
 });
 

@@ -206,6 +206,13 @@ input:-webkit-autofill:active {
     transition: transform 0.3s ease;
 }
 
+.neu-modal h1,
+.neu-modal h2,
+.neu-modal h3,
+.neu-modal h4 {
+    color: var(--heading-color);
+}
+
 .neu-modal-overlay.open .neu-modal {
     transform: translateY(0);
 }

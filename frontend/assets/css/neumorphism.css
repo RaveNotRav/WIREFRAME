@@ -16,6 +16,14 @@ body.neu-app {
     scrollbar-gutter: stable;
 }
 
+/* Typography: Feature & Section Headings */
+h1, h2, h3, h4,
+.page-title,
+.bento-tile-title,
+.gallery-item-title {
+    color: var(--heading-color);
+}
+
 /* Accessibility: Focus Rings */
 .neu-app *:focus-visible {
     outline: var(--focus-ring);

@@ -50,6 +50,9 @@
 
     /* Base Surface (Light Mode) */
     --surface-bg: #E4E9F0;
+    --bg-primary: #E4E9F0;
+    --heading-color: #8A6417;
+    --heading-color-strong: #7A5811;
     --text-primary: #0F172A;
     --text-secondary: #334155;
     --text-muted: #64748B;
@@ -211,6 +214,9 @@
 
     /* Base Surface */
     --surface-bg: #0B0F17;
+    --bg-primary: #0B0F17;
+    --heading-color: #F8FAFC;
+    --heading-color-strong: #CBD5E1;
     --text-primary: #F8FAFC;
     --text-secondary: #CBD5E1;
     --text-muted: #94A3B8;
@@ -328,6 +334,9 @@
     :root:not([data-theme="light"]) {
         color-scheme: dark;
         --surface-bg: #0B0F17;
+        --bg-primary: #0B0F17;
+        --heading-color: #F8FAFC;
+        --heading-color-strong: #CBD5E1;
         --surface-sunken: #070A0F;
         --bg-card-alt: #161F2E;
         --text-primary: #F8FAFC;
