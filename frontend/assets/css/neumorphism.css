@@ -1,5 +1,10 @@
 /* neumorphism.css - Base classes for Neumorphic UI and Accessibility Rules */
 
+html.preload *,
+html.preload body {
+    transition: none !important;
+}
+
 body.neu-app {
     background-color: var(--surface-bg);
     color: var(--text-primary);
@@ -43,7 +48,7 @@ body.neu-app {
     min-height: 44px; /* Tap target >= 44px */
     min-width: 44px;
     border-radius: var(--radius-control);
-    transition: all 0.2s ease-in-out;
+    transition: filter 0.2s ease-in-out, box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
     border: none; /* We use box-shadow instead of standard borders for the shape, but subtle border applied via class */
     color: var(--text-primary);
     font-weight: 600;

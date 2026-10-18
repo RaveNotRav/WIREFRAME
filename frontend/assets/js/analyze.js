@@ -33,8 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
     document.getElementById('mobile-btn-logout')?.addEventListener('click', handleLogout);
     
-    await loadUser();
-    await loadSettings();
+    await Promise.allSettled([loadUser(), loadSettings()]);
     
     setupUploadHandlers();
     setupGPSHandlers();
@@ -247,6 +246,7 @@ function handleFiles(files) {
 function renderThumbnails() {
     const container = document.getElementById('thumbnails');
     container.innerHTML = '';
+    const fragment = document.createDocumentFragment();
     fileThumbURLs.forEach((url, i) => {
         const wrap = document.createElement('div');
         wrap.style.position = 'relative';
@@ -286,8 +286,9 @@ function renderThumbnails() {
 
         wrap.appendChild(img);
         wrap.appendChild(remove);
-        container.appendChild(wrap);
+        fragment.appendChild(wrap);
     });
+    container.appendChild(fragment);
 }
 
 // ---- GPS ----
@@ -425,6 +426,7 @@ async function startAnalysis() {
 function renderBatchTabs() {
     const tabsContainer = document.getElementById('batch-tabs');
     tabsContainer.innerHTML = '';
+    const fragment = document.createDocumentFragment();
     
     batchItems.forEach((item, i) => {
         const btn = document.createElement('button');
@@ -460,8 +462,9 @@ function renderBatchTabs() {
             }
         });
         
-        tabsContainer.appendChild(btn);
+        fragment.appendChild(btn);
     });
+    tabsContainer.appendChild(fragment);
 }
 
 async function switchTab(index) {
@@ -641,6 +644,7 @@ async function pollItem(analysisId, errorCount) {
 function renderEvents(events) {
     const stepper = document.getElementById('stepper');
     stepper.innerHTML = '';
+    const fragment = document.createDocumentFragment();
     
     events.forEach((ev, i) => {
         const isLast = i === events.length - 1;
@@ -655,8 +659,9 @@ function renderEvents(events) {
             <div class="neu-step-icon" style="display: flex; align-items: center; justify-content: center;">${iconSvg}</div>
             <span>${escapeHtml(ev.state)} - <small>${escapeHtml(ev.detail)}</small></span>
         `;
-        stepper.appendChild(div);
+        fragment.appendChild(div);
     });
+    stepper.appendChild(fragment);
 }
 
 function updateStatusBadge(text, risk, reason) {
@@ -757,11 +762,13 @@ function updateTilesFromJson(analysis) {
     
     const reasonsList = document.getElementById('safety-reasons');
     reasonsList.innerHTML = '';
+    const reasonsFragment = document.createDocumentFragment();
     pres.reasons.forEach(r => {
         const li = document.createElement('li');
         li.textContent = r;
-        reasonsList.appendChild(li);
+        reasonsFragment.appendChild(li);
     });
+    reasonsList.appendChild(reasonsFragment);
 
     // Action
     let actionText = actionMapping[pres.risk] || 'No action defined.';
@@ -806,6 +813,7 @@ function updateTilesFromJson(analysis) {
     const wireList = document.getElementById('wire-list');
     wireList.innerHTML = '';
     if (analysis.wires) {
+        const wireFragment = document.createDocumentFragment();
         analysis.wires.forEach((w, i) => {
             const div = document.createElement('div');
             div.style.padding = '10px';
@@ -826,8 +834,9 @@ function updateTilesFromJson(analysis) {
                     <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${w.sag_m !== null ? w.sag_m.toFixed(2) : '--'}m</div>
                 </div>
             `;
-            wireList.appendChild(div);
+            wireFragment.appendChild(div);
         });
+        wireList.appendChild(wireFragment);
     }
 }
 

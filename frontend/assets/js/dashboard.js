@@ -185,6 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     function renderHeatmap(heatmapData) {
         const container = document.getElementById('heatmap-container');
         container.innerHTML = '';
+        const fragment = document.createDocumentFragment();
         
         heatmapData.forEach(item => {
             const cell = document.createElement('div');
@@ -209,8 +210,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
             
-            container.appendChild(cell);
+            fragment.appendChild(cell);
         });
+        container.appendChild(fragment);
     }
 
     function calculateDistributionPercentages(dist) {
@@ -279,11 +281,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             tbody.innerHTML = '';
             
             // Populate Accessible Table
+            const frag = document.createDocumentFragment();
             trendData.forEach(d => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `<td>${escapeHtml(d.date)}</td><td>${escapeHtml(d.count)}</td><td>${escapeHtml(d.avg_risk)}</td>`;
-                tbody.appendChild(tr);
+                frag.appendChild(tr);
             });
+            tbody.appendChild(frag);
         }
         
         container.innerHTML = '';
@@ -298,11 +302,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         // Setup ResizeObserver to re-render if dimensions change (e.g. 0 initially then layout happens)
         if (!state.trendResizeObserver && typeof ResizeObserver !== 'undefined') {
+            let resizeRaf = null;
             state.trendResizeObserver = new ResizeObserver(entries => {
-                // debounce slightly or just re-render
-                renderTrendSVG();
-                renderSparkline('sparkline-total', state.trendData, 'count', 'var(--color-primary)');
-                renderSparkline('sparkline-risk', state.trendData, 'avg_risk', 'var(--color-unsafe)'); 
+                if (resizeRaf) cancelAnimationFrame(resizeRaf);
+                resizeRaf = requestAnimationFrame(() => {
+                    renderTrendSVG();
+                    renderSparkline('sparkline-total', state.trendData, 'count', 'var(--color-primary)');
+                    renderSparkline('sparkline-risk', state.trendData, 'avg_risk', 'var(--color-unsafe)'); 
+                });
             });
             state.trendResizeObserver.observe(container);
         }
@@ -415,6 +422,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const data = await res.json();
             
             tbody.innerHTML = '';
+            const frag = document.createDocumentFragment();
             (data.data || []).forEach(item => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -426,8 +434,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <td>${escapeHtml(item.status)}</td>
                     <td>${getRiskScorePill(item.risk_score)}</td>
                 `;
-                tbody.appendChild(tr);
+                frag.appendChild(tr);
             });
+            tbody.appendChild(frag);
             
         } catch (e) {
             tbody.innerHTML = `<tr><td colspan="7" style="color:var(--risk-critical);">${escapeHtml(e.message)}</td></tr>`;

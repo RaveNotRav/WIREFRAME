@@ -13,7 +13,7 @@
     box-shadow: var(--neu-pressed);
     box-sizing: border-box;
     font-family: inherit;
-    transition: all 0.2s ease-in-out;
+    transition: box-shadow 0.2s ease-in-out, outline 0.2s ease-in-out;
 }
 
 .neu-input::placeholder {
@@ -100,7 +100,7 @@ input:-webkit-autofill:active {
     padding: 40px 20px;
     text-align: center;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: box-shadow 0.2s ease, filter 0.2s ease;
     width: 100%;
     box-sizing: border-box;
     display: flex;
@@ -237,7 +237,7 @@ input:-webkit-autofill:active {
     gap: 12px;
     transform: translateX(100%);
     opacity: 0;
-    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    transition: transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55), opacity 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 }
 
 .neu-toast.show {
@@ -395,7 +395,7 @@ option {
     background-color: var(--header-btn-bg) !important;
     color: var(--header-btn-text) !important;
     box-shadow: var(--neu-raised-sm);
-    transition: all 0.2s ease-in-out;
+    transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .neu-theme-toggle:hover {
