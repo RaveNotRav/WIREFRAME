@@ -16,6 +16,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+os.environ.setdefault("WIREFRAME_DB_PATH", str(REPO_ROOT / "wireframe.db"))
+
 
 def generate_admin_password(username: str) -> str:
     """Generate a random password meeting the policy in backend/routes/users.py."""
@@ -41,8 +43,12 @@ def choose_admin_username(conn) -> str:
     return username
 
 
-def seed_demo_admin(add: bool = False, output_file: str | None = None) -> int:
-    """Seed a demo admin user. Returns exit code (0 on success, 1 on refusal/error)."""
+def seed_demo_admin(
+    add: bool = False,
+    reset: bool = False,
+    output_file: str | None = None,
+) -> int:
+    """Seed or reset a demo admin user. Returns exit code (0 on success, 1 on refusal/error)."""
     if os.environ.get("WIREFRAME_MOCK") != "1":
         print(
             "ERROR: seed_demo_admin.py can only be run when WIREFRAME_MOCK='1'. Refusing to run.",
@@ -56,6 +62,37 @@ def seed_demo_admin(add: bool = False, output_file: str | None = None) -> int:
     conn = get_connection()
     try:
         run_migrations(conn)
+
+        default_target = os.environ.get(
+            "WIREFRAME_DEMO_ADMIN_FILE",
+            str(REPO_ROOT / "passwords_demo_admin.txt"),
+        )
+        target_path = Path(output_file or default_target).resolve()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if reset:
+            username = "demo_admin"
+            password = generate_admin_password(username)
+            phash, salt = hash_password(password)
+
+            row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE users SET password_hash = ?, salt = ?, role = 'admin', active = 1 WHERE username = ?",
+                    (phash, salt, username),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO users (username, password_hash, salt, role, active) VALUES (?, ?, ?, 'admin', 1)",
+                    (username, phash, salt),
+                )
+            conn.commit()
+
+            with open(target_path, "w", encoding="utf-8") as f:
+                f.write(f"username: {username}\npassword: {password}\n")
+
+            print(f"demo_admin reset; credentials written to {target_path.name}")
+            return 0
 
         row = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
         user_count = row["c"] if row else 0
@@ -73,13 +110,6 @@ def seed_demo_admin(add: bool = False, output_file: str | None = None) -> int:
             (username, phash, salt),
         )
         conn.commit()
-
-        default_target = os.environ.get(
-            "WIREFRAME_DEMO_ADMIN_FILE",
-            str(REPO_ROOT / "passwords_demo_admin.txt"),
-        )
-        target_path = Path(output_file or default_target).resolve()
-        target_path.parent.mkdir(parents=True, exist_ok=True)
 
         mode = "a" if add and target_path.exists() else "w"
         with open(target_path, mode, encoding="utf-8") as f:
@@ -101,12 +131,17 @@ def main() -> int:
         help="Add another admin even if users already exist in the database.",
     )
     parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset demo_admin password (or create if absent).",
+    )
+    parser.add_argument(
         "--output-file",
         default=None,
         help="Custom output file path for credentials (default: passwords_demo_admin.txt).",
     )
     args = parser.parse_args()
-    return seed_demo_admin(add=args.add, output_file=args.output_file)
+    return seed_demo_admin(add=args.add, reset=args.reset, output_file=args.output_file)
 
 
 if __name__ == "__main__":

@@ -72,6 +72,9 @@ conn.execute('INSERT INTO users (username, password_hash, salt, role) VALUES (?,
 
 conn.commit()
 conn.close()
+
+with open('passwords_demo_admin.txt', 'w', encoding='utf-8') as f:
+    f.write('username: demo_admin\npassword: $admin_pw\n')
 "
     Write-Host "==========================================" -ForegroundColor Green
     Write-Host "Demo users created:" -ForegroundColor Green

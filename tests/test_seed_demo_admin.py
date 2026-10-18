@@ -173,3 +173,155 @@ def test_created_user_can_login_through_api(tmp_path, client_unauth, monkeypatch
     me_data = me_res.json()
     assert me_data["username"] == "demo_admin"
     assert me_data["role"] == "admin"
+
+
+def test_seed_reset_absent_creates_admin(tmp_path):
+    """TASK 4: --reset creates demo_admin when absent, never leaks password to stdout/stderr."""
+    db_file = tmp_path / "reset_absent.db"
+    out_file = tmp_path / "creds_absent.txt"
+
+    env = os.environ.copy()
+    env["WIREFRAME_MOCK"] = "1"
+    env["WIREFRAME_DB_PATH"] = str(db_file)
+
+    res = subprocess.run(
+        [sys.executable, "scripts/seed_demo_admin.py", "--reset", "--output-file", str(out_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert res.returncode == 0
+    assert "demo_admin reset; credentials written to" in res.stdout
+    assert out_file.name in res.stdout
+
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    user = conn.execute("SELECT * FROM users WHERE username = 'demo_admin'").fetchone()
+    assert user is not None
+    assert user["role"] == "admin"
+    assert user["active"] == 1
+    salt = user["salt"]
+    phash = user["password_hash"]
+    conn.close()
+
+    assert out_file.exists()
+    content = out_file.read_text(encoding="utf-8")
+    assert "username: demo_admin" in content
+    pws = [line.split(": ", 1)[1] for line in content.splitlines() if line.startswith("password: ")]
+    assert len(pws) == 1
+    pw = pws[0]
+    assert len(pw) >= 16
+
+    from backend.auth import verify_password
+    assert verify_password(pw, salt, phash)
+
+    # Password and hash must never appear in stdout or stderr
+    assert pw not in res.stdout
+    assert pw not in res.stderr
+    assert phash not in res.stdout
+
+
+def test_seed_reset_existing_changes_hash_and_verifies(tmp_path):
+    """TASK 4: --reset on existing demo_admin updates hash, writes valid password, never prints password."""
+    db_file = tmp_path / "reset_existing.db"
+    out_file = tmp_path / "creds_existing.txt"
+
+    env = os.environ.copy()
+    env["WIREFRAME_MOCK"] = "1"
+    env["WIREFRAME_DB_PATH"] = str(db_file)
+
+    # 1. First create demo_admin using default behavior
+    res1 = subprocess.run(
+        [sys.executable, "scripts/seed_demo_admin.py", "--output-file", str(out_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert res1.returncode == 0
+    content1 = out_file.read_text(encoding="utf-8")
+    pw1 = [line.split(": ", 1)[1] for line in content1.splitlines() if line.startswith("password: ")][0]
+
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    user1 = conn.execute("SELECT * FROM users WHERE username = 'demo_admin'").fetchone()
+    old_hash = user1["password_hash"]
+    old_salt = user1["salt"]
+    conn.close()
+
+    from backend.auth import verify_password
+    assert verify_password(pw1, old_salt, old_hash)
+
+    # 2. Reset existing demo_admin with --reset
+    res2 = subprocess.run(
+        [sys.executable, "scripts/seed_demo_admin.py", "--reset", "--output-file", str(out_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert res2.returncode == 0
+    assert "demo_admin reset; credentials written to" in res2.stdout
+    assert out_file.name in res2.stdout
+
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    user2 = conn.execute("SELECT * FROM users WHERE username = 'demo_admin'").fetchone()
+    new_hash = user2["password_hash"]
+    new_salt = user2["salt"]
+    assert user2["active"] == 1
+    assert user2["role"] == "admin"
+    assert new_hash != old_hash
+    conn.close()
+
+    content2 = out_file.read_text(encoding="utf-8")
+    assert "username: demo_admin" in content2
+    pws2 = [line.split(": ", 1)[1] for line in content2.splitlines() if line.startswith("password: ")]
+    assert len(pws2) == 1
+    pw2 = pws2[0]
+    assert len(pw2) >= 16
+    assert pw2 != pw1
+
+    assert verify_password(pw2, new_salt, new_hash)
+    assert not verify_password(pw1, new_salt, new_hash)
+
+    # Neither password nor hash appears in output
+    assert pw2 not in res2.stdout
+    assert pw2 not in res2.stderr
+    assert new_hash not in res2.stdout
+
+
+def test_reset_user_can_login_through_api(tmp_path, client_unauth, monkeypatch):
+    """TASK 4: Admin reset via seed_demo_admin(reset=True) can log in through API."""
+    out_file = tmp_path / "reset_login_creds.txt"
+
+    monkeypatch.setenv("WIREFRAME_MOCK", "1")
+    monkeypatch.setenv("WIREFRAME_DEMO_ADMIN_FILE", str(out_file))
+
+    # Initial seed
+    code1 = seed_demo_admin()
+    assert code1 == 0
+
+    # Reset
+    code2 = seed_demo_admin(reset=True)
+    assert code2 == 0
+
+    content = out_file.read_text(encoding="utf-8")
+    lines = dict(line.split(": ", 1) for line in content.strip().splitlines() if ": " in line)
+    username = lines["username"]
+    password = lines["password"]
+    assert username == "demo_admin"
+
+    # API login
+    login_res = client_unauth.post(
+        "/api/auth/login",
+        json={"username": username, "password": password},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert login_res.status_code == 200
+    assert "session" in login_res.cookies
+
+    # Verify session
+    client_unauth.cookies.set("session", login_res.cookies["session"])
+    me_res = client_unauth.get("/api/auth/me")
+    assert me_res.status_code == 200
+    assert me_res.json()["username"] == "demo_admin"
+
