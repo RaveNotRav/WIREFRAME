@@ -117,3 +117,33 @@ def test_regression_upload_missing_required(clean_image):
         response = client.post("/api/batches", data=data, files=files, headers={"X-Requested-With": "XMLHttpRequest"})
         assert response.status_code == 422
         assert "company" in response.text.lower() or "barangay" in response.text.lower() or "street" in response.text.lower()
+
+
+def test_single_upload_returns_batch_id_and_cancel_works(clean_image):
+    import cv2
+    image_bytes = cv2.imencode('.jpg', clean_image)[1].tobytes()
+    with TestClient(app) as client:
+        setup_test_auth(client)
+        data = {
+            "company": "Cancel Co",
+            "barangay": "Brgy. Cancel",
+            "street": "Cancel St"
+        }
+        files = {"file": ("test_cancel.jpg", image_bytes, "image/jpeg")}
+        resp = client.post("/api/analysis/upload", data=data, files=files, headers={"X-Requested-With": "XMLHttpRequest"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "analysis_id" in body
+        assert "batch_id" in body
+        batch_id = body["batch_id"]
+        assert isinstance(batch_id, int) and batch_id > 0
+
+        # Result endpoint exposes batch_id
+        res_resp = client.get(f"/api/analysis/{body['analysis_id']}/result")
+        assert res_resp.status_code == 200
+        assert res_resp.json().get("batch_id") == batch_id
+
+        # Cancel endpoint works for this batch_id
+        cancel_resp = client.post(f"/api/batches/{batch_id}/cancel", headers={"X-Requested-With": "XMLHttpRequest"})
+        assert cancel_resp.status_code == 200
+        assert cancel_resp.json().get("status") in ("cancel_requested", "done", "interrupted")

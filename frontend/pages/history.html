@@ -162,6 +162,12 @@
         import { loadHistoryData } from '/assets/js/loaders.js';
         import { formatDbTimestamp, escapeHtml } from '/assets/js/lib/formatters.js';
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const paramAnalysisId = urlParams.get('analysis_id') || urlParams.get('id');
+        if (paramAnalysisId) {
+            window.location.replace(`/analyze.html?id=${encodeURIComponent(paramAnalysisId)}`);
+        }
+
         let currentPage = 1;
         let totalPages = 1;
         let user = null;

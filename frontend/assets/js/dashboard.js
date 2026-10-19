@@ -210,7 +210,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             cell.setAttribute('data-tooltip', tooltipText);
             cell.setAttribute('aria-label', tooltipText);
             
-            const destUrl = item.site_id ? `/history.html?site_id=${item.site_id}` : `/history.html?analysis_id=${item.analysis_id}`;
+            const destUrl = `/analyze.html?id=${encodeURIComponent(item.analysis_id)}`;
 
             cell.addEventListener('click', () => {
                 window.location.href = destUrl;
@@ -243,10 +243,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         container.style.setProperty('--hm-cols', layout.cols);
         container.style.setProperty('--hm-cell', `${layout.cellSize}px`);
 
-        if (layout.capped && layout.maxVisible < heatmapData.length) {
-            const visibleData = heatmapData.slice(0, layout.maxVisible);
-            renderHeatmapCells(container, visibleData);
-        }
+        const visibleData = (layout.capped && layout.maxVisible < heatmapData.length)
+            ? heatmapData.slice(0, layout.maxVisible)
+            : heatmapData;
+        renderHeatmapCells(container, visibleData);
     }
 
     function renderHeatmap(heatmapData) {
@@ -271,10 +271,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         container.classList.remove('is-empty');
         if (legend) legend.style.display = 'flex';
 
-        // Render cells
-        renderHeatmapCells(container, heatmapData);
-
-        // After rendering cells, compute layout and apply CSS variables
+        // Apply adaptive layout and render cells from full data
         applyHeatmapLayout(container, heatmapData);
 
         // Setup rAF-throttled ResizeObserver once

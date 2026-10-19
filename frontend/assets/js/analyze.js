@@ -45,17 +45,18 @@ if (typeof document !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
         const viewId = params.get('id');
         if (viewId) {
+            const parsedId = parseInt(viewId, 10);
             document.getElementById('tile-batch').style.display = 'block';
             batchItems = [{
-                id: parseInt(viewId, 10),
+                id: parsedId,
                 status: 'queued',
-                thumb: '', 
-                name: `Analysis #${viewId}`
+                thumb: `/api/analysis/${parsedId}/original`, 
+                name: `Analysis #${parsedId}`
             }];
             renderBatchTabs();
             switchTab(0);
             updateGlobalStepper('processing');
-            startPolling(parseInt(viewId, 10));
+            startPolling(parsedId);
         }
     });
 }
@@ -151,7 +152,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png'];
 
 
-function updateGlobalStepper(stage) {
+export function updateGlobalStepper(stage) {
     const sUpload = document.getElementById('step-upload');
     const sProcessing = document.getElementById('step-processing');
     const sResults = document.getElementById('step-results');
@@ -405,8 +406,8 @@ export async function startAnalysis() {
             if (typeof history !== 'undefined' && history.replaceState) {
                 history.replaceState(null, '', `?id=${data.analysis_id}`);
             }
-            batchItems = [{ id: data.analysis_id, status: 'queued', thumb: fileThumbURLs[0], name: currentFiles[0].name }];
-            currentBatchId = null;
+            batchItems = [{ id: data.analysis_id, status: 'queued', thumb: `/api/analysis/${data.analysis_id}/original`, name: currentFiles[0].name }];
+            currentBatchId = data.batch_id || null;
             renderBatchTabs();
             switchTab(0);
             updateGlobalStepper('processing');
@@ -446,7 +447,7 @@ export async function startAnalysis() {
             batchItems = batchData.analyses.map((a, i) => ({
                 id: a.id,
                 status: a.status,
-                thumb: fileThumbURLs[i] || '',
+                thumb: `/api/analysis/${a.id}/original`,
                 name: currentFiles[i] ? currentFiles[i].name : `Item ${i+1}`
             }));
             
@@ -545,6 +546,10 @@ async function switchTab(index) {
         const events = await eventsRes.json();
         const analysis = await analysisRes.json();
         
+        if (analysis.batch_id) {
+            currentBatchId = analysis.batch_id;
+        }
+
         renderEvents(events);
         const pres = statusPresentation(analysis);
         updateStatusBadge(pres.text, pres.risk, pres.reason);
@@ -553,6 +558,11 @@ async function switchTab(index) {
         const terminalStatuses = ['complete', 'rejected', 'no_wires', 'error', 'interrupted'];
         if (terminalStatuses.includes(analysis.status)) {
             populateResultTiles(analysis);
+            if (analysis.status === 'complete' || analysis.status === 'no_wires') {
+                updateGlobalStepper('results');
+            }
+        } else {
+            updateGlobalStepper('processing');
         }
 
         const pdfBtn = document.getElementById('btn-download-pdf');
@@ -636,6 +646,10 @@ async function pollItem(analysisId, errorCount) {
         const events = await eventsRes.json();
         const analysis = await analysisRes.json();
         
+        if (analysis.batch_id && !currentBatchId) {
+            currentBatchId = analysis.batch_id;
+        }
+
         // Update item status in batchItems
         const itemObj = batchItems.find(b => b.id === analysisId);
         if (itemObj && itemObj.status !== analysis.status) {
@@ -675,6 +689,9 @@ async function pollItem(analysisId, errorCount) {
                     console.warn('Failed to fetch final events:', e);
                 }
                 populateResultTiles(analysis);
+                if (analysis.status === 'complete' || analysis.status === 'no_wires') {
+                    updateGlobalStepper('results');
+                }
                 if (shouldShowPublicConfirmation(analysis, currentUser)) {
                     setTimeout(() => {
                         const modal = document.getElementById('public-confirmation-modal');
@@ -774,7 +791,7 @@ function populateResultTiles(analysis) {
 
     if (analysis.status === 'no_wires') {
         document.getElementById('tile-vni').style.display = 'block';
-        document.getElementById('vni-value').textContent = (analysis.vni !== null && analysis.vni !== undefined) ? analysis.vni.toFixed(2) : '--';
+        document.getElementById('vni-value').textContent = typeof analysis.vni === 'number' ? analysis.vni.toFixed(2) : '--';
         document.getElementById('vni-spectrum').src = `/api/analysis/${analysis.id}/spectrum?t=${ts}`;
         
         document.getElementById('tile-action').style.display = 'block';
@@ -859,13 +876,13 @@ function updateTilesFromJson(analysis) {
     gaugeContainer.setAttribute('aria-valuetext', pres.crsText);
 
     // Sag & Clearance
-    const sag = analysis.sag_m !== null ? analysis.sag_m : '--';
-    const cl = analysis.ground_clearance_m !== null ? analysis.ground_clearance_m : '--';
-    document.getElementById('sag-value').textContent = `${typeof sag === 'number' ? sag.toFixed(2) : sag} m`;
-    document.getElementById('clearance-value').textContent = `${typeof cl === 'number' ? cl.toFixed(2) : cl} m`;
+    const sagStr = typeof analysis.sag_m === 'number' ? `${analysis.sag_m.toFixed(2)} m` : '--';
+    const clStr = typeof analysis.ground_clearance_m === 'number' ? `${analysis.ground_clearance_m.toFixed(2)} m` : '--';
+    document.getElementById('sag-value').textContent = sagStr;
+    document.getElementById('clearance-value').textContent = clStr;
 
     // VNI
-    document.getElementById('vni-value').textContent = (analysis.vni !== null && analysis.vni !== undefined) ? analysis.vni.toFixed(2) : '--';
+    document.getElementById('vni-value').textContent = typeof analysis.vni === 'number' ? analysis.vni.toFixed(2) : '--';
     const ts = new Date().getTime();
     document.getElementById('vni-spectrum').src = `/api/analysis/${analysis.id}/spectrum?t=${ts}`;
     
@@ -883,6 +900,8 @@ function updateTilesFromJson(analysis) {
             div.style.justifyContent = 'space-between';
             
             const color = getWireClassColor(w.class_name);
+            const crsLabel = typeof w.crs === 'number' ? w.crs.toFixed(2) : '--';
+            const sagLabel = typeof w.sag_m === 'number' ? `${w.sag_m.toFixed(2)}m` : '--';
             div.innerHTML = `
                 <div>
                     <span style="display:inline-block;width:12px;height:12px;background:${color};border-radius:50%;margin-right:8px;"></span>
@@ -890,8 +909,8 @@ function updateTilesFromJson(analysis) {
                     <div style="font-size:0.85rem;color:var(--text-muted);">Confidence: ${formatConfidence(w.confidence)}</div>
                 </div>
                 <div style="text-align:right;">
-                    <div>CRS: ${w.crs !== null ? w.crs.toFixed(2) : '--'}</div>
-                    <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${w.sag_m !== null ? w.sag_m.toFixed(2) : '--'}m</div>
+                    <div>CRS: ${crsLabel}</div>
+                    <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${sagLabel}</div>
                 </div>
             `;
             wireFragment.appendChild(div);
@@ -1112,3 +1131,10 @@ function setupCalibrationTool() {
 }
 
 // ---- TOASTS ----
+export function getCurrentBatchId() {
+    return currentBatchId;
+}
+
+export function getBatchItems() {
+    return batchItems;
+}

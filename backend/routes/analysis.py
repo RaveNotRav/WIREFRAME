@@ -215,7 +215,7 @@ async def upload_image(
         logging.getLogger(__name__).error(f"Failed to enqueue batch {batch_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    res_body = {"analysis_id": analysis_id, "status": "queued"}
+    res_body = {"analysis_id": analysis_id, "batch_id": batch_id, "status": "queued"}
     
     if parsed_lat is not None and parsed_lng is not None:
         if not (4.5 <= parsed_lat <= 21.5) or not (114.0 <= parsed_lng <= 127.0):

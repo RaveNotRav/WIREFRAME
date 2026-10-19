@@ -335,4 +335,43 @@ describe('Admin Dashboard Polish Tests', () => {
             assert.ok(!dashboardJs.includes('window.getHeatmapRiskClass ='), 'dashboard.js must not assign to window.getHeatmapRiskClass');
         });
     });
+
+    describe('Demo Flow Batch A Fixes (#7, #14)', () => {
+        const historyHtmlPath = path.resolve(process.cwd(), 'frontend/pages/history.html');
+        const historyHtml = fs.readFileSync(historyHtmlPath, 'utf8');
+
+        it('#7: Heatmap cell clicks link directly to /analyze.html?id=<analysis_id>', () => {
+            assert.match(
+                dashboardJs,
+                /const\s+destUrl\s*=\s*`\/analyze\.html\?id=\$\{encodeURIComponent\(item\.analysis_id\)\}`/,
+                'Heatmap cells must link directly to /analyze.html?id=<analysis_id>'
+            );
+        });
+
+        it('#7: history.html inspects URLSearchParams and redirects analysis_id to /analyze.html?id=', () => {
+            assert.match(
+                historyHtml,
+                /const\s+urlParams\s*=\s*new\s+URLSearchParams\(window\.location\.search\)/,
+                'history.html must parse URLSearchParams on load'
+            );
+            assert.match(
+                historyHtml,
+                /paramAnalysisId[\s\S]*?window\.location\.replace\(`\/analyze\.html\?id=\$\{encodeURIComponent\(paramAnalysisId\)\}`\)/,
+                'history.html must redirect analysis_id to analyze.html'
+            );
+        });
+
+        it('#14: applyHeatmapLayout always slices from full heatmapData and renders visibleData', () => {
+            assert.match(
+                dashboardJs,
+                /const\s+visibleData\s*=\s*\(layout\.capped\s*&&\s*layout\.maxVisible\s*<\s*heatmapData\.length\)\s*\?\s*heatmapData\.slice\(0,\s*layout\.maxVisible\)\s*:\s*heatmapData/,
+                'applyHeatmapLayout must select visibleData from full heatmapData based on capped state'
+            );
+            assert.match(
+                dashboardJs,
+                /renderHeatmapCells\(container,\s*visibleData\)/,
+                'applyHeatmapLayout must render visibleData so cells restore on expansion'
+            );
+        });
+    });
 });

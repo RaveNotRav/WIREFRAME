@@ -264,5 +264,87 @@ describe('Analyze Upload Queue Reset & Retry Tests', () => {
             assert.ok(!uploadedUrls.some(u => u.includes('/api/batches')), 'Must not call batch endpoint');
             assert.strictEqual(analyzeModule.getCurrentFiles().length, 0, 'Queue cleared after second analysis');
         });
+
+        it('#3 & #2: single upload sets thumb to server original URL and records batch_id', async () => {
+            analyzeModule.setCurrentFiles([{ name: 'test_thumb.jpg' }]);
+            analyzeModule.setFileThumbURLs(['blob:http://localhost/test_thumb.jpg']);
+
+            globalThis.fetch = async (url) => {
+                if (url.includes('/api/analysis/upload')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ analysis_id: 305, batch_id: 99 })
+                    };
+                }
+                return { ok: true, status: 200, json: async () => ({}) };
+            };
+
+            await analyzeModule.startAnalysis();
+            const items = analyzeModule.getBatchItems();
+            assert.strictEqual(items.length, 1);
+            assert.strictEqual(items[0].thumb, '/api/analysis/305/original', 'Thumb must use server endpoint, not revoked blob URL');
+            assert.strictEqual(analyzeModule.getCurrentBatchId(), 99, 'currentBatchId must be set from data.batch_id');
+        });
+    });
+
+    describe('Demo Flow Batch A Fixes (#3, #6, #8)', () => {
+        const analyzeHtmlPath = path.resolve(process.cwd(), 'frontend/pages/analyze.html');
+        const analyzeHtml = fs.readFileSync(analyzeHtmlPath, 'utf8');
+
+        it('#3: Batch tabs use /api/analysis/.../original thumbnails and avoid revoked blob URLs', () => {
+            assert.match(
+                analyzeJs,
+                /thumb:\s*`\/api\/analysis\/\$\{data\.analysis_id\}\/original`/,
+                'Single upload must point thumb to /api/analysis/${data.analysis_id}/original'
+            );
+            assert.match(
+                analyzeJs,
+                /thumb:\s*`\/api\/analysis\/\$\{a\.id\}\/original`/,
+                'Batch upload must point thumb to /api/analysis/${a.id}/original'
+            );
+            assert.doesNotMatch(
+                analyzeJs,
+                /thumb:\s*fileThumbURLs\[/,
+                'Must not assign fileThumbURLs to batchItems thumbs'
+            );
+        });
+
+        it('#6: Global stepper defines #step-results and calls updateGlobalStepper("results") on terminal state', () => {
+            // Check HTML has step-results
+            assert.match(analyzeHtml, /id="step-results"/, 'analyze.html must contain #step-results element');
+            assert.match(analyzeHtml, /<span[^>]*>Results<\/span>/, 'analyze.html must label step 3 as Results');
+
+            // Check JS calls updateGlobalStepper('results')
+            assert.match(
+                analyzeJs,
+                /updateGlobalStepper\(['"]results['"]\)/,
+                'analyze.js must invoke updateGlobalStepper("results") on terminal state'
+            );
+        });
+
+        it('#8: Numeric formatting uses typeof === "number" and eliminates "!== null ? *.toFixed" pattern', () => {
+            // Verify no `!== null ? *.toFixed` pattern remains in analyze.js
+            assert.doesNotMatch(
+                analyzeJs,
+                /!==\s*null\s*\?\s*[a-zA-Z0-9_.]+\.toFixed/,
+                'Must eliminate `!== null ? *.toFixed` pattern throughout analyze.js'
+            );
+            assert.match(
+                analyzeJs,
+                /typeof\s+w\.crs\s*===\s*['"]number['"]\s*\?\s*w\.crs\.toFixed/,
+                'w.crs must check typeof === "number"'
+            );
+            assert.match(
+                analyzeJs,
+                /typeof\s+w\.sag_m\s*===\s*['"]number['"]\s*\?\s*`\$\{w\.sag_m\.toFixed/,
+                'w.sag_m must check typeof === "number"'
+            );
+            assert.match(
+                analyzeJs,
+                /typeof\s+analysis\.vni\s*===\s*['"]number['"]\s*\?\s*analysis\.vni\.toFixed/,
+                'analysis.vni must check typeof === "number"'
+            );
+        });
     });
 });
