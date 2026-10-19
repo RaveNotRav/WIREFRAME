@@ -27,36 +27,38 @@ const MAX_POLLING_CONCURRENCY = 2; // don't overwhelm server
 let activePollsCount = 0;
 
 // ---- INIT ----
-document.addEventListener('DOMContentLoaded', async () => {
-    initTheme();
-    document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
-    document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
-    document.getElementById('mobile-btn-logout')?.addEventListener('click', handleLogout);
-    
-    await Promise.allSettled([loadUser(), loadSettings()]);
-    
-    setupUploadHandlers();
-    setupGPSHandlers();
-    setupCalibrationTool();
-    setupDecimalValidation();
-    updateGlobalStepper('upload');
-    // Check if we are viewing an existing analysis
-    const params = new URLSearchParams(window.location.search);
-    const viewId = params.get('id');
-    if (viewId) {
-        document.getElementById('tile-batch').style.display = 'block';
-        batchItems = [{
-            id: parseInt(viewId, 10),
-            status: 'queued',
-            thumb: '', 
-            name: `Analysis #${viewId}`
-        }];
-        renderBatchTabs();
-        switchTab(0);
-        updateGlobalStepper('processing');
-        startPolling(parseInt(viewId, 10));
-    }
-});
+if (typeof document !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', async () => {
+        initTheme();
+        document.getElementById('theme-toggle')?.addEventListener('click', toggleTheme);
+        document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
+        document.getElementById('mobile-btn-logout')?.addEventListener('click', handleLogout);
+        
+        await Promise.allSettled([loadUser(), loadSettings()]);
+        
+        setupUploadHandlers();
+        setupGPSHandlers();
+        setupCalibrationTool();
+        setupDecimalValidation();
+        updateGlobalStepper('upload');
+        // Check if we are viewing an existing analysis
+        const params = new URLSearchParams(window.location.search);
+        const viewId = params.get('id');
+        if (viewId) {
+            document.getElementById('tile-batch').style.display = 'block';
+            batchItems = [{
+                id: parseInt(viewId, 10),
+                status: 'queued',
+                thumb: '', 
+                name: `Analysis #${viewId}`
+            }];
+            renderBatchTabs();
+            switchTab(0);
+            updateGlobalStepper('processing');
+            startPolling(parseInt(viewId, 10));
+        }
+    });
+}
 
 function setupDecimalValidation() {
     const decimalInputs = document.querySelectorAll('input[type="number"][step="any"], #cal-x, #cal-y, #cal-length');
@@ -245,6 +247,7 @@ function handleFiles(files) {
 
 function renderThumbnails() {
     const container = document.getElementById('thumbnails');
+    if (!container) return;
     container.innerHTML = '';
     const fragment = document.createDocumentFragment();
     fileThumbURLs.forEach((url, i) => {
@@ -291,6 +294,36 @@ function renderThumbnails() {
     container.appendChild(fragment);
 }
 
+export function clearUploadQueue() {
+    currentFiles = [];
+    fileThumbURLs.forEach(url => {
+        try {
+            URL.revokeObjectURL(url);
+        } catch (_) {}
+    });
+    fileThumbURLs = [];
+    const container = document.getElementById('thumbnails');
+    if (container) container.innerHTML = '';
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) fileInput.value = '';
+}
+
+export function getCurrentFiles() {
+    return currentFiles;
+}
+
+export function setCurrentFiles(files) {
+    currentFiles = Array.isArray(files) ? files : [];
+}
+
+export function getFileThumbURLs() {
+    return fileThumbURLs;
+}
+
+export function setFileThumbURLs(urls) {
+    fileThumbURLs = Array.isArray(urls) ? urls : [];
+}
+
 // ---- GPS ----
 function setupGPSHandlers() {
     document.getElementById('btn-gps').addEventListener('click', () => {
@@ -321,7 +354,7 @@ function validateGPS(lat, lng) {
 }
 
 // ---- PIPELINE EXECUTION ----
-async function startAnalysis() {
+export async function startAnalysis() {
     if (currentFiles.length === 0) {
         showToast('Please select at least one image.', 'error');
         return;
@@ -347,7 +380,8 @@ async function startAnalysis() {
     const reasonEl = document.getElementById('status-reason');
     if (reasonEl) reasonEl.textContent = '';
     
-    document.getElementById('tile-batch').style.display = 'block';
+    const tileBatch = document.getElementById('tile-batch');
+    if (tileBatch) tileBatch.style.display = 'block';
     
     try {
         if (currentFiles.length === 1) {
@@ -365,8 +399,14 @@ async function startAnalysis() {
                 body: formData
             });
             const data = await res.json();
-            history.replaceState(null, '', `?id=${data.analysis_id}`);
+            if (!res.ok || !data.analysis_id) {
+                throw new Error(data?.detail || data?.error || 'Upload failed');
+            }
+            if (typeof history !== 'undefined' && history.replaceState) {
+                history.replaceState(null, '', `?id=${data.analysis_id}`);
+            }
             batchItems = [{ id: data.analysis_id, status: 'queued', thumb: fileThumbURLs[0], name: currentFiles[0].name }];
+            currentBatchId = null;
             renderBatchTabs();
             switchTab(0);
             updateGlobalStepper('processing');
@@ -386,13 +426,21 @@ async function startAnalysis() {
                 allowAnon: true
             });
             const data = await res.json();
+            if (!res.ok || !data.batch_id) {
+                throw new Error(data?.detail || data?.error || 'Batch upload failed');
+            }
             
             const batchRes = await fetchApi(`/api/batches/${data.batch_id}`);
             const batchData = await batchRes.json();
+            if (!batchRes.ok) {
+                throw new Error(batchData?.detail || batchData?.error || 'Failed to retrieve batch analyses');
+            }
             
             currentBatchId = data.batch_id; // Added for cancel
             if (batchData.analyses && batchData.analyses.length > 0) {
-                history.replaceState(null, '', `?id=${batchData.analyses[0].id}`);
+                if (typeof history !== 'undefined' && history.replaceState) {
+                    history.replaceState(null, '', `?id=${batchData.analyses[0].id}`);
+                }
             }
             
             batchItems = batchData.analyses.map((a, i) => ({
@@ -407,6 +455,9 @@ async function startAnalysis() {
             updateGlobalStepper('processing');
             batchItems.forEach(item => startPolling(item.id));
         }
+
+        // Reset upload queue, revoking object URLs and clearing input/previews
+        clearUploadQueue();
     } catch (e) {
         console.error("Upload error:", e);
         showToast(e.message, 'error');
@@ -425,6 +476,7 @@ async function startAnalysis() {
 // ---- BATCH SWITCHER ----
 function renderBatchTabs() {
     const tabsContainer = document.getElementById('batch-tabs');
+    if (!tabsContainer) return;
     tabsContainer.innerHTML = '';
     const fragment = document.createDocumentFragment();
     
@@ -443,8 +495,12 @@ function renderBatchTabs() {
         if (item.status === 'complete') indicatorColor = 'var(--risk-low)';
         if (['error', 'rejected', 'interrupted'].includes(item.status)) indicatorColor = 'var(--risk-critical)';
         
+        const thumbHtml = item.thumb 
+            ? `<img src="${escapeHtml(item.thumb)}" style="width:24px; height:24px; object-fit:cover; border-radius:4px;" alt="Thumbnail" onerror="this.style.display='none'">` 
+            : '';
+
         btn.innerHTML = `
-            <img src="${escapeHtml(item.thumb)}" style="width:24px; height:24px; object-fit:cover; border-radius:4px;" alt="Thumbnail">
+            ${thumbHtml}
             <span style="flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.name)}</span>
             <span style="width:10px; height:10px; border-radius:50%; background-color:${indicatorColor};" title="${escapeHtml(item.status)}"></span>
         `;
@@ -522,43 +578,47 @@ function startPolling(analysisId) {
     pollItem(analysisId, 0);
 }
 
-document.getElementById('btn-cancel')?.addEventListener('click', async () => {
-    const activeId = batchItems[currentActiveItemIndex]?.id;
-    if (!activeId && !currentBatchId) return;
-    
-    // We try to cancel the batch if batch, or the analysis. 
-    // Wait, the API specifies POST /api/batches/{id}/cancel
-    const batchToCancel = currentBatchId || activeId; // If single upload, it created a batch under the hood. Let's just use currentBatchId.
-    if (!currentBatchId) {
-        showToast("No batch ID available to cancel.", "warning");
-        return;
-    }
-    
-    try {
-        await fetchApi(`/api/batches/${currentBatchId}/cancel`, { method: 'POST' });
-        showToast('Cancel requested', 'info');
-        // Let polling pick up the interrupted state
-    } catch (e) {
-        showToast('Failed to cancel: ' + e.message, 'error');
-    }
-});
+if (typeof document !== 'undefined') {
+    document.getElementById('btn-cancel')?.addEventListener('click', async () => {
+        const activeId = batchItems[currentActiveItemIndex]?.id;
+        if (!activeId && !currentBatchId) return;
+        
+        // We try to cancel the batch if batch, or the analysis. 
+        // Wait, the API specifies POST /api/batches/{id}/cancel
+        const batchToCancel = currentBatchId || activeId; // If single upload, it created a batch under the hood. Let's just use currentBatchId.
+        if (!currentBatchId) {
+            showToast("No batch ID available to cancel.", "warning");
+            return;
+        }
+        
+        try {
+            await fetchApi(`/api/batches/${currentBatchId}/cancel`, { method: 'POST' });
+            showToast('Cancel requested', 'info');
+            // Let polling pick up the interrupted state
+        } catch (e) {
+            showToast('Failed to cancel: ' + e.message, 'error');
+        }
+    });
+}
 
-function stopAllPolling() {
+export function stopAllPolling() {
     Object.values(pollingTimers).forEach(clearTimeout);
     pollingTimers = {};
 }
 
-document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-        stopAllPolling();
-    } else {
-        batchItems.forEach(item => {
-            if (!['complete', 'rejected', 'no_wires', 'error', 'interrupted'].includes(item.status)) {
-                startPolling(item.id);
-            }
-        });
-    }
-});
+if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopAllPolling();
+        } else {
+            batchItems.forEach(item => {
+                if (!['complete', 'rejected', 'no_wires', 'error', 'interrupted'].includes(item.status)) {
+                    startPolling(item.id);
+                }
+            });
+        }
+    });
+}
 
 async function pollItem(analysisId, errorCount) {
     if (activePollsCount >= MAX_POLLING_CONCURRENCY) {
