@@ -30,9 +30,9 @@ from backend.auth import (
     verify_csrf,
 )
 from backend.database import get_connection
-from backend.services.sites import get_or_create_site, validate_location
+from backend.services.sites import get_or_create_site, validate_location, validate_gps_coordinates
 from backend.services.worker import enqueue_batch
-from backend.utils.uploads import generate_safe_filename
+from backend.utils.uploads import generate_safe_filename, is_safe_contained_path
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -137,21 +137,7 @@ async def upload_image(
         shutil.copyfileobj(file.file, buffer)
 
     comp, brgy, st = validate_location(company, barangay, street)
-
-    def parse_gps(val: str, name: str) -> float | None:
-        if not val:
-            return None
-        try:
-            f = float(val)
-        except ValueError:
-            raise HTTPException(status_code=422, detail=f"Invalid {name}")
-        return f
-        
-    parsed_lat = parse_gps(gps_lat, "latitude")
-    parsed_lng = parse_gps(gps_lng, "longitude")
-
-    if (parsed_lat is None) != (parsed_lng is None):
-        raise HTTPException(status_code=422, detail="Both latitude and longitude must be provided, or neither")
+    parsed_lat, parsed_lng, gps_warning = validate_gps_coordinates(gps_lat, gps_lng)
 
     gps_source = None
     width, height = None, None
@@ -164,8 +150,7 @@ async def upload_image(
             if parsed_lat is None or parsed_lng is None:
                 exif_lat, exif_lng = extract_gps(img)
                 if exif_lat is not None and exif_lng is not None:
-                    parsed_lat = exif_lat
-                    parsed_lng = exif_lng
+                    parsed_lat, parsed_lng, gps_warning = validate_gps_coordinates(exif_lat, exif_lng)
                     gps_source = 'exif'
             elif parsed_lat is not None and parsed_lng is not None:
                 gps_source = 'manual'
@@ -177,13 +162,6 @@ async def upload_image(
         logging.getLogger(__name__).error(f"Image processing error for {out_path}: {e}")
         os.remove(out_path)
         raise HTTPException(status_code=400, detail="Corrupt image")
-
-    if parsed_lat is not None and (not (-90 <= parsed_lat <= 90)):
-        os.remove(out_path)
-        raise HTTPException(status_code=422, detail="Invalid latitude")
-    if parsed_lng is not None and (not (-180 <= parsed_lng <= 180)):
-        os.remove(out_path)
-        raise HTTPException(status_code=422, detail="Invalid longitude")
 
     conn = get_connection()
     try:
@@ -217,9 +195,8 @@ async def upload_image(
 
     res_body = {"analysis_id": analysis_id, "batch_id": batch_id, "status": "queued"}
     
-    if parsed_lat is not None and parsed_lng is not None:
-        if not (4.5 <= parsed_lat <= 21.5) or not (114.0 <= parsed_lng <= 127.0):
-            res_body["warning"] = "GPS coordinates are outside the Philippines."
+    if gps_warning:
+        res_body["warning"] = gps_warning
             
     if guest_token and guest_token != req.cookies.get("guest_session"):
         response.set_cookie(
@@ -434,10 +411,7 @@ def serve_image(analysis_id: int, column: str, user: User | None, req: Request):
         raise HTTPException(status_code=404, detail="Image not available")
         
     p = Path(path_str).resolve()
-    base_uploads = Path("uploads").resolve()
-    base_outputs = Path("outputs").resolve()
-    
-    if not str(p).startswith(str(base_uploads)) and not str(p).startswith(str(base_outputs)):
+    if not is_safe_contained_path(p, allowed_dirs=("uploads", "outputs")):
         raise HTTPException(status_code=403, detail="Path traversal detected")
         
     if not p.is_file():
@@ -457,10 +431,8 @@ async def get_original(analysis_id: int, req: Request, user: User | None = Depen
         raise HTTPException(status_code=404, detail="Not found")
     verify_analysis_access(a, user, req)
         
-    p = Path("uploads") / a["filename"]
-    p = p.resolve()
-    base_uploads = Path("uploads").resolve()
-    if not str(p).startswith(str(base_uploads)):
+    p = (Path("uploads") / a["filename"]).resolve()
+    if not is_safe_contained_path(p, allowed_dirs=("uploads",)):
         raise HTTPException(status_code=403, detail="Path traversal detected")
         
     return FileResponse(str(p))

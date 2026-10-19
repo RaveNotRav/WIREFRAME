@@ -22,7 +22,7 @@ from backend.database import get_connection
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
 
-from backend.services.sites import get_or_create_site, validate_location
+from backend.services.sites import get_or_create_site, validate_location, validate_gps_coordinates
 from backend.services.worker import enqueue_batch
 from backend.utils.uploads import generate_safe_filename
 
@@ -67,15 +67,8 @@ async def create_batch(
     if total_size > 60 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Batch exceeds maximum size of 60MB")
 
-    # Parse GPS
-    lat_val = None
-    lng_val = None
-    if gps_lat and gps_lng:
-        try:
-            lat_val = float(gps_lat)
-            lng_val = float(gps_lng)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="Invalid GPS coordinates (must be float)")
+    # Parse and validate GPS
+    lat_val, lng_val, gps_warning = validate_gps_coordinates(gps_lat, gps_lng)
 
     # If there's a global config error from startup, reject uploads
     if main_state.is_config_failed():
@@ -154,8 +147,8 @@ async def create_batch(
         is_mock_flag = 1 if os.getenv("WIREFRAME_MOCK") == "1" else 0
         for safe_name in saved_files:
             conn.execute(
-                "INSERT INTO analyses (filename, status, company, barangay, street, sector, batch_id, created_by, site_id, is_mock, guest_session_id, is_public) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (safe_name, comp, brgy, st, sector, batch_id, user.id if user else None, site_id, is_mock_flag, guest_session_id, is_public)
+                "INSERT INTO analyses (filename, status, company, barangay, street, sector, batch_id, created_by, site_id, is_mock, guest_session_id, is_public, gps_lat, gps_lng, gps_source) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (safe_name, comp, brgy, st, sector, batch_id, user.id if user else None, site_id, is_mock_flag, guest_session_id, is_public, lat_val, lng_val, "manual" if lat_val is not None else None)
             )
             
         conn.commit()
@@ -171,7 +164,10 @@ async def create_batch(
         raise HTTPException(status_code=500, detail="Internal server error")
     
     from fastapi.responses import JSONResponse
-    resp_obj = JSONResponse(content={"batch_id": batch_id, "status": "queued", "items_count": len(saved_files)})
+    resp_data = {"batch_id": batch_id, "status": "queued", "items_count": len(saved_files)}
+    if gps_warning:
+        resp_data["warning"] = gps_warning
+    resp_obj = JSONResponse(content=resp_data)
     if guest_session_id and guest_token:
         resp_obj.set_cookie(key="guest_session", value=guest_token, httponly=True, secure=(req.url.scheme == "https"), samesite="lax", max_age=86400, path="/")
     return resp_obj

@@ -1,7 +1,50 @@
 import re
 import sqlite3
+from typing import Any
 
 from fastapi import HTTPException
+
+
+def validate_gps_coordinates(lat_raw: Any, lng_raw: Any) -> tuple[float | None, float | None, str | None]:
+    """Validate GPS latitude and longitude coordinates.
+
+    - Both must be present or both absent (else 422)
+    - Numeric parse errors -> 422
+    - Range checks: latitude within [-90, 90], longitude within [-180, 180] (else 422)
+    - Outside Philippine bounds (4.5–21.5 / 114.0–127.0) returns a warning string
+    Returns: (parsed_lat, parsed_lng, warning)
+    """
+    def parse_coord(val: Any, name: str) -> float | None:
+        if val is None:
+            return None
+        if isinstance(val, str):
+            val = val.strip()
+            if not val:
+                return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail=f"Invalid GPS {name} (must be float)")
+
+    parsed_lat = parse_coord(lat_raw, "latitude")
+    parsed_lng = parse_coord(lng_raw, "longitude")
+
+    if (parsed_lat is None) != (parsed_lng is None):
+        raise HTTPException(status_code=422, detail="Both latitude and longitude must be provided, or neither")
+
+    if parsed_lat is not None and not (-90.0 <= parsed_lat <= 90.0):
+        raise HTTPException(status_code=422, detail="Invalid latitude")
+
+    if parsed_lng is not None and not (-180.0 <= parsed_lng <= 180.0):
+        raise HTTPException(status_code=422, detail="Invalid longitude")
+
+    warning = None
+    if parsed_lat is not None and parsed_lng is not None:
+        if not (4.5 <= parsed_lat <= 21.5) or not (114.0 <= parsed_lng <= 127.0):
+            warning = "GPS coordinates are outside the Philippines."
+
+    return parsed_lat, parsed_lng, warning
+
 
 
 def validate_location(company: str | None, barangay: str | None, street: str | None) -> tuple[str, str, str]:

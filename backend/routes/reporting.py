@@ -30,7 +30,7 @@ async def get_ranking(include_mock: bool = Query(False, description="Include moc
             SELECT s.name as company, s.barangay, s.street, AVG(a.risk_score) as avg_risk, COUNT(a.id) as analysis_count
             FROM analyses a
             JOIN sites s ON a.site_id = s.id
-            WHERE a.status = 'complete' {mock_clause}
+            WHERE a.status = 'complete' AND a.is_public = 0 {mock_clause}
             GROUP BY s.id, s.barangay, s.street
             ORDER BY avg_risk DESC
         """).fetchall()

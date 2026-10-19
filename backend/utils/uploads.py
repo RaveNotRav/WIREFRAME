@@ -3,6 +3,7 @@
 import os
 import re
 import uuid
+from pathlib import Path
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
@@ -78,3 +79,27 @@ def generate_safe_filename(name: str) -> str:
 
     hex8 = uuid.uuid4().hex[:8]
     return f"{hex8}_{sanitized_stem}{norm_ext}"
+
+
+def is_safe_contained_path(path_str: str | Path | None, allowed_dirs: tuple[str, ...] = ("uploads", "outputs")) -> bool:
+    """Return True if path_str resolves strictly inside one of allowed_dirs."""
+    if not path_str:
+        return False
+    try:
+        p = Path(path_str).resolve()
+        for base_name in allowed_dirs:
+            base = Path(base_name).resolve()
+            try:
+                if p.is_relative_to(base) and p != base:
+                    return True
+            except AttributeError:
+                try:
+                    p.relative_to(base)
+                    if p != base:
+                        return True
+                except ValueError:
+                    continue
+    except Exception:
+        return False
+    return False
+

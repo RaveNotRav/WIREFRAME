@@ -107,18 +107,17 @@ async def get_dashboard_stats(
             })
             
         # 4. Trend
-        cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
         trend_query = f"""
             SELECT 
                 date(created_at, '+8 hours') as trend_date,
                 COUNT(id) as count,
                 AVG(risk_score) as avg_risk
             FROM analyses
-            WHERE status = 'complete' AND is_public = 0 AND created_at >= ? {mock_clause}
+            WHERE status = 'complete' AND is_public = 0 AND created_at >= datetime('now', ?) {mock_clause}
             GROUP BY trend_date
             ORDER BY trend_date ASC
         """
-        trend_rows = conn.execute(trend_query, (cutoff_date,)).fetchall()
+        trend_rows = conn.execute(trend_query, (f"-{int(days)} days",)).fetchall()
         trend = [
             {
                 "date": r["trend_date"],
