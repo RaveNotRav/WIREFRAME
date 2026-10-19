@@ -1,14 +1,13 @@
 import { initTheme, toggleTheme } from './lib/theme.js';
-import { getSafetyPill, formatDbTimestamp, parseDbTimestamp, escapeHtml, formatWireClass } from './lib/formatters.js';
+import { getSafetyPill, formatDbTimestamp, parseDbTimestamp, escapeHtml, formatWireClass, formatRelativeTime, getRiskScorePill as sharedGetRiskScorePill, getHeatmapRiskClass as sharedGetHeatmapRiskClass, getRiskBand, DEFAULT_RISK_BANDS } from './lib/formatters.js';
+import { computeHeatmapLayout } from './lib/heatmap_layout.js';
 
 function getRiskScorePill(score) {
-    if (score === null || score === undefined) return '-';
-    let level = 'Safe';
-    if (score >= 75) level = 'Critical';
-    else if (score >= 50) level = 'Unsafe';
-    else if (score >= 25) level = 'Caution';
-    return getSafetyPill(level) + ` <span style="font-size:0.85rem; color:var(--text-secondary); margin-left:6px;">(${score.toFixed(1)})</span>`;
+    return sharedGetRiskScorePill(score, (typeof state !== 'undefined' && state.riskBands) ? state.riskBands : DEFAULT_RISK_BANDS);
 }
+
+
+
 
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -62,7 +61,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Dashboard State
     let state = {
         includeMock: false,
-        trendDays: 30
+        trendDays: 30,
+        heatmapData: null,
+        heatmapResizeObserver: null,
+        riskBands: DEFAULT_RISK_BANDS
     };
 
     const mockToggleContainer = document.getElementById('mock-toggle-container') || document.getElementById('include-mock-toggle-container');
@@ -91,6 +93,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Determine if mock data exists to show toggle, and auto-enable if no real data
     try {
         const cacheBuster = `&_t=${Date.now()}`;
+        
+        // Fetch public config for risk_bands if available
+        try {
+            const configRes = await fetch(`/api/config/public?${cacheBuster.slice(1)}`);
+            if (configRes.ok) {
+                const configData = await configRes.json();
+                if (Array.isArray(configData.risk_bands) && configData.risk_bands.length > 0) {
+                    state.riskBands = configData.risk_bands;
+                }
+            }
+        } catch (ce) {
+            // Fallback to DEFAULT_RISK_BANDS
+        }
+
         const mockCheckRes = await fetch(`/api/analysis?is_mock=1&limit=1${cacheBuster}`);
         if (mockCheckRes.ok) {
             const mockData = await mockCheckRes.json();
@@ -98,8 +114,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (hasMock) {
                 if (mockToggleContainer) mockToggleContainer.style.display = 'block';
 
-                // Check if any non-mock complete analyses exist
-                const realCheckRes = await fetch(`/api/analysis?is_mock=0&status=complete&limit=1${cacheBuster}`);
+                // Check if any verified non-mock complete analyses exist
+                const realCheckRes = await fetch(`/api/analysis?is_mock=0&is_public=0&status=complete&limit=1${cacheBuster}`);
                 if (realCheckRes.ok) {
                     const realData = await realCheckRes.json();
                     const hasReal = (realData.total || 0) > 0;
@@ -131,63 +147,58 @@ document.addEventListener('DOMContentLoaded', async () => {
             renderHeatmap(data.heatmap);
             renderDistribution(data.distribution);
             renderTrendSVG(data.trend);
+            if (data.kpis && data.kpis.total_analyses === 0) {
+                renderRecentAnalyses([]);
+            }
         } catch (e) {
             console.error(e);
         }
     }
 
-        
-    function renderSparkline(containerId, data, dataKey, color) {
-        const container = document.getElementById(containerId);
-        if (!container || !data || data.length === 0) return;
-        
-        const width = container.clientWidth || 100;
-        const height = container.clientHeight || 30;
-        
-        const values = data.map(d => d[dataKey]);
-        const max = Math.max(...values, 1);
-        const min = Math.min(...values, 0);
-        const range = max - min || 1;
-        
-        const pts = values.map((val, i) => {
-            const x = (i / (values.length - 1 || 1)) * width;
-            const y = height - ((val - min) / range) * height;
-            return `${x},${y}`;
-        }).join(' ');
-        
-        const svg = `<svg width="100%" height="100%" preserveAspectRatio="none">
-            <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>`;
-        container.innerHTML = svg;
-    }
+
 
     function renderKPIs(kpis) {
+        if (!kpis) return;
         const els = ['kpi-total', 'kpi-high-critical', 'kpi-avg-risk', 'kpi-today'];
         els.forEach(id => {
             const el = document.getElementById(id);
             if (el) el.classList.remove('neu-skeleton');
         });
         
-        document.getElementById('kpi-total').textContent = kpis.total_analyses;
-        document.getElementById('kpi-high-critical').textContent = kpis.high_critical_count;
-        document.getElementById('kpi-avg-risk').textContent = kpis.average_risk_score.toFixed(1);
-        document.getElementById('kpi-today').textContent = kpis.processed_today;
+        const total = kpis.total_analyses ?? 0;
+        const highCrit = kpis.high_critical_count ?? 0;
+        const avgRisk = typeof kpis.average_risk_score === 'number' ? kpis.average_risk_score : 0;
+        const today = kpis.processed_today ?? 0;
+
+        const totalEl = document.getElementById('kpi-total');
+        const criticalEl = document.getElementById('kpi-high-critical');
+        const avgRiskEl = document.getElementById('kpi-avg-risk');
+        const todayEl = document.getElementById('kpi-today');
+
+        if (totalEl) totalEl.textContent = total;
+        if (criticalEl) criticalEl.textContent = highCrit;
+        if (avgRiskEl) avgRiskEl.textContent = avgRisk.toFixed(1);
+        if (todayEl) todayEl.textContent = today;
+
+        const criticalCard = document.getElementById('kpi-card-critical');
+        if (criticalCard) {
+            if (highCrit > 0) {
+                criticalCard.classList.add('has-critical-risk');
+            } else {
+                criticalCard.classList.remove('has-critical-risk');
+            }
+        }
     }
 
     function getHeatmapRiskClass(band) {
-        if (!band) return 'risk-Unknown';
-        const validBands = ['Low', 'Moderate', 'High', 'Critical'];
-        if (validBands.includes(band)) return `risk-${band}`;
-        return 'risk-Unknown';
+        return sharedGetHeatmapRiskClass(band);
     }
-    if (typeof window !== 'undefined') window.getHeatmapRiskClass = getHeatmapRiskClass;
 
-    function renderHeatmap(heatmapData) {
-        const container = document.getElementById('heatmap-container');
+    function renderHeatmapCells(container, items) {
         container.innerHTML = '';
         const fragment = document.createDocumentFragment();
         
-        heatmapData.forEach(item => {
+        items.forEach(item => {
             const cell = document.createElement('div');
             cell.className = `heatmap-cell ${getHeatmapRiskClass(item.risk_band)}`;
             cell.setAttribute('tabindex', '0');
@@ -215,6 +226,72 @@ document.addEventListener('DOMContentLoaded', async () => {
         container.appendChild(fragment);
     }
 
+    function applyHeatmapLayout(container, heatmapData) {
+        if (!container || !heatmapData || heatmapData.length === 0) return;
+        const W = container.clientWidth || 360;
+        const H = container.clientHeight > 50 ? container.clientHeight : 200;
+
+        let gap = 8;
+        if (typeof window !== 'undefined' && window.getComputedStyle) {
+            const cs = window.getComputedStyle(container);
+            const gapStr = cs.getPropertyValue('--spacing-sm') || cs.gap || '8px';
+            const parsed = parseFloat(gapStr);
+            if (!isNaN(parsed) && parsed >= 0) gap = parsed;
+        }
+
+        const layout = computeHeatmapLayout(heatmapData.length, W, H, gap);
+        container.style.setProperty('--hm-cols', layout.cols);
+        container.style.setProperty('--hm-cell', `${layout.cellSize}px`);
+
+        if (layout.capped && layout.maxVisible < heatmapData.length) {
+            const visibleData = heatmapData.slice(0, layout.maxVisible);
+            renderHeatmapCells(container, visibleData);
+        }
+    }
+
+    function renderHeatmap(heatmapData) {
+        state.heatmapData = heatmapData;
+        const container = document.getElementById('heatmap-container');
+        const legend = document.getElementById('heatmap-legend');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        if (!heatmapData || heatmapData.length === 0) {
+            if (legend) legend.style.display = 'none';
+            container.classList.add('is-empty');
+            container.innerHTML = `
+                <div class="dashboard-empty-state">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                    <span>No analyses yet</span>
+                </div>
+            `;
+            return;
+        }
+
+        container.classList.remove('is-empty');
+        if (legend) legend.style.display = 'flex';
+
+        // Render cells
+        renderHeatmapCells(container, heatmapData);
+
+        // After rendering cells, compute layout and apply CSS variables
+        applyHeatmapLayout(container, heatmapData);
+
+        // Setup rAF-throttled ResizeObserver once
+        if (!state.heatmapResizeObserver && typeof ResizeObserver !== 'undefined') {
+            let rAfId = null;
+            state.heatmapResizeObserver = new ResizeObserver(() => {
+                if (rAfId) cancelAnimationFrame(rAfId);
+                rAfId = requestAnimationFrame(() => {
+                    if (state.heatmapData && state.heatmapData.length > 0) {
+                        applyHeatmapLayout(container, state.heatmapData);
+                    }
+                });
+            });
+            state.heatmapResizeObserver.observe(container);
+        }
+    }
+
     function calculateDistributionPercentages(dist) {
         const total = Object.values(dist).reduce((sum, val) => sum + val, 0);
         if (total === 0) return dist; // Avoid division by zero
@@ -232,8 +309,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function renderDistribution(dist) {
         const container = document.getElementById('distribution-container');
+        if (!container) return;
         container.innerHTML = '';
         
+        const totalWires = Object.values(dist || {}).reduce((sum, val) => sum + (Number(val) || 0), 0);
+        if (totalWires === 0) {
+            container.innerHTML = `
+                <div class="dashboard-empty-state">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                    <span>No analyses yet</span>
+                </div>
+            `;
+            return;
+        }
+
         const defaultKeys = ['power_line', 'telecom_cable', 'fiber_optic', 'dead_abandoned'];
         const allKeys = Array.from(new Set([...defaultKeys, ...Object.keys(dist || {})]));
         
@@ -266,6 +355,49 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, 50);
     }
 
+    function renderRecentAnalyses(analyses) {
+        const container = document.getElementById('recent-analyses-container');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        if (!analyses || analyses.length === 0) {
+            container.innerHTML = `
+                <div class="dashboard-empty-state">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+                    <span>No analyses yet</span>
+                    <a href="/analyze.html" class="neu-button neu-raised-sm" style="margin-top: var(--spacing-xs); text-decoration: none; font-size: var(--font-size-sm); padding: var(--spacing-xs) var(--spacing-md);">Go to Analyze</a>
+                </div>
+            `;
+            return;
+        }
+
+        const fallbackSvg = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiM0NDQiLz48dGV4dCB4PSI1MCUiIHk9IjUwJSIgZmlsbD0iI2FhYSIgZGltaW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gVGh1bWJuYWlsPC90ZXh0Pjwvc3ZnPg==";
+        const frag = document.createDocumentFragment();
+
+        analyses.forEach(item => {
+            const row = document.createElement('a');
+            row.className = 'recent-analysis-row';
+            row.href = `/analyze.html?id=${encodeURIComponent(item.id)}`;
+            
+            const thumbUrl = item.filename ? `/api/analysis/${item.id}/original` : '';
+            const displayName = item.filename || `Analysis #${item.id}`;
+            const timeAgo = formatRelativeTime(item.created_at);
+            const pillHtml = getRiskScorePill(item.risk_score);
+            
+            row.innerHTML = `
+                <img src="${thumbUrl ? escapeHtml(thumbUrl) : fallbackSvg}" loading="lazy" decoding="async" class="recent-thumb" alt="${escapeHtml(displayName)}" onerror="this.src='${fallbackSvg}'">
+                <div class="recent-info">
+                    <span class="recent-filename" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
+                    <span class="recent-time">${escapeHtml(timeAgo)}</span>
+                </div>
+                ${pillHtml}
+            `;
+            
+            frag.appendChild(row);
+        });
+        container.appendChild(frag);
+    }
+
     function renderTrendSVG(trendData) {
         if (trendData) {
             state.trendData = trendData;
@@ -292,7 +424,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         container.innerHTML = '';
         if (trendData.length === 0) {
-            container.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100%;color:var(--text-secondary);">No trend data available</div>';
+            container.innerHTML = `
+                <div class="dashboard-empty-state" style="min-height: 220px;">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    <span>No analyses yet</span>
+                </div>
+            `;
             return;
         }
 
@@ -307,8 +444,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (resizeRaf) cancelAnimationFrame(resizeRaf);
                 resizeRaf = requestAnimationFrame(() => {
                     renderTrendSVG();
-                    renderSparkline('sparkline-total', state.trendData, 'count', 'var(--color-primary)');
-                    renderSparkline('sparkline-risk', state.trendData, 'avg_risk', 'var(--color-unsafe)'); 
                 });
             });
             state.trendResizeObserver.observe(container);
@@ -417,13 +552,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             // or rely on server-side sort if supported.
             const mockQuery = state.includeMock ? '' : '&is_mock=0';
             const cacheBuster = `&_t=${Date.now()}`;
-            const res = await fetch(`/api/analysis?limit=100${mockQuery}${cacheBuster}`);
+            const res = await fetch(`/api/analysis?limit=100&is_public=0&status=complete${mockQuery}${cacheBuster}`);
             if (!res.ok) throw new Error('Failed to fetch analyses');
             const data = await res.json();
+            const allAnalyses = data.data || [];
+            renderRecentAnalyses(allAnalyses.slice(0, 5));
             
             tbody.innerHTML = '';
             const frag = document.createDocumentFragment();
-            (data.data || []).forEach(item => {
+            allAnalyses.forEach(item => {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${escapeHtml(item.id)}</td>
@@ -439,6 +576,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             tbody.appendChild(frag);
             
         } catch (e) {
+            renderRecentAnalyses([]);
             tbody.innerHTML = `<tr><td colspan="7" style="color:var(--risk-critical);">${escapeHtml(e.message)}</td></tr>`;
         }
     }

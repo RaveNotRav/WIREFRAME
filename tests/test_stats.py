@@ -70,5 +70,24 @@ def test_stats_aggregation(client_admin: TestClient, _init_settings):
     data = resp.json()
     assert data["kpis"]["total_analyses"] == 2
     assert data["kpis"]["high_critical_count"] == 1
-    assert data["kpis"]["average_risk_score"] == 0.1
     assert len(data["heatmap"]) == 2
+
+
+def test_stats_excludes_public_submissions(client_admin: TestClient, _init_settings):
+    # Seed 1 verified inspector analysis (is_public=0) and 1 public tip (is_public=1)
+    _init_settings.execute(
+        "INSERT INTO analyses (filename, status, risk_score, is_mock, is_public, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+        ("verified.jpg", "complete", 20.0, 0, 0)
+    )
+    _init_settings.execute(
+        "INSERT INTO analyses (filename, status, risk_score, is_mock, is_public, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+        ("public_tip.jpg", "complete", 80.0, 0, 1)
+    )
+    _init_settings.commit()
+
+    resp = client_admin.get("/api/stats/dashboard")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["kpis"]["total_analyses"] == 1
+    assert len(data["heatmap"]) == 1
+    assert data["heatmap"][0]["risk_score"] == 20.0

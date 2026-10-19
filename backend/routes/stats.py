@@ -16,7 +16,7 @@ async def get_dashboard_stats(
     conn = get_connection()
     try:
         # Check if we need to filter by mock
-        # Stats never count rejected or no_wires; all queries filter strictly on status = 'complete'
+        # Stats never count rejected or no_wires; all queries filter strictly on status = 'complete' and is_public = 0 (verified inspector records only)
         mock_clause = ""
         if not include_mock:
             mock_clause = "AND is_mock = 0"
@@ -33,7 +33,7 @@ async def get_dashboard_stats(
                 AVG(risk_score) as average_risk_score,
                 SUM(CASE WHEN date(created_at, '+8 hours') = date('now', '+8 hours') THEN 1 ELSE 0 END) as processed_today
             FROM analyses
-            WHERE status = 'complete' {mock_clause}
+            WHERE status = 'complete' AND is_public = 0 {mock_clause}
         """
         kpi_row = conn.execute(kpi_query).fetchone()
         
@@ -49,7 +49,7 @@ async def get_dashboard_stats(
             SELECT w.class_name, COUNT(w.id) as count
             FROM wires w
             JOIN analyses a ON w.analysis_id = a.id
-            WHERE a.status = 'complete' {mock_clause}
+            WHERE a.status = 'complete' AND a.is_public = 0 {mock_clause}
             GROUP BY w.class_name
         """
         dist_rows = conn.execute(dist_query).fetchall()
@@ -75,7 +75,7 @@ async def get_dashboard_stats(
                 a.created_at
             FROM analyses a
             LEFT JOIN sites s ON a.site_id = s.id
-            WHERE a.status = 'complete' {mock_clause}
+            WHERE a.status = 'complete' AND a.is_public = 0 {mock_clause}
             ORDER BY a.created_at DESC
             LIMIT ?
         """
@@ -114,7 +114,7 @@ async def get_dashboard_stats(
                 COUNT(id) as count,
                 AVG(risk_score) as avg_risk
             FROM analyses
-            WHERE status = 'complete' AND created_at >= ? {mock_clause}
+            WHERE status = 'complete' AND is_public = 0 AND created_at >= ? {mock_clause}
             GROUP BY trend_date
             ORDER BY trend_date ASC
         """
