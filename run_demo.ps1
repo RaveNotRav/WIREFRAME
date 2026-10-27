@@ -6,6 +6,9 @@ param(
 if ($Clean) {
     Write-Host "Cleaning state..." -ForegroundColor Yellow
     if (Test-Path "wireframe.db") { Remove-Item "wireframe.db" -Force }
+    if (Test-Path "wireframe.db-wal") { Remove-Item "wireframe.db-wal" -Force }
+    if (Test-Path "wireframe.db-shm") { Remove-Item "wireframe.db-shm" -Force }
+    if (Test-Path "passwords_demo_admin.txt") { Remove-Item "passwords_demo_admin.txt" -Force }
     if (Test-Path "uploads") { Remove-Item -Recurse -Force "uploads" }
     if (Test-Path "outputs") { Remove-Item -Recurse -Force "outputs" }
 }
@@ -34,7 +37,7 @@ $env:PYTHONPATH="."
 $env:WIREFRAME_MOCK="1"
 
 if ($SeedAdmin) {
-    python scripts\seed_demo_admin.py
+    python scripts\seed_demo_admin.py --ensure
 } elseif (-not $db_exists) {
     Write-Host "Initializing Database and Migrations..." -ForegroundColor Cyan
     python -c "from backend.database import get_connection, run_migrations; run_migrations(get_connection())"

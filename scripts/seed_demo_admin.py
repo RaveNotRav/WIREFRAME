@@ -46,6 +46,7 @@ def choose_admin_username(conn) -> str:
 def seed_demo_admin(
     add: bool = False,
     reset: bool = False,
+    ensure: bool = False,
     output_file: str | None = None,
 ) -> int:
     """Seed or reset a demo admin user. Returns exit code (0 on success, 1 on refusal/error)."""
@@ -69,6 +70,27 @@ def seed_demo_admin(
         )
         target_path = Path(output_file or default_target).resolve()
         target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if ensure:
+            row = conn.execute("SELECT id FROM users WHERE username = 'demo_admin'").fetchone()
+            if row:
+                print("demo_admin exists; use scripts\\seed_demo_admin.py --reset to rotate password")
+                return 0
+
+            username = "demo_admin"
+            password = generate_admin_password(username)
+            phash, salt = hash_password(password)
+            conn.execute(
+                "INSERT INTO users (username, password_hash, salt, role, active) VALUES (?, ?, ?, 'admin', 1)",
+                (username, phash, salt),
+            )
+            conn.commit()
+
+            with open(target_path, "w", encoding="utf-8") as f:
+                f.write(f"username: {username}\npassword: {password}\n")
+
+            print(f"Created admin '{username}'. Credentials written to {target_path.name}")
+            return 0
 
         if reset:
             username = "demo_admin"
@@ -136,12 +158,17 @@ def main() -> int:
         help="Reset demo_admin password (or create if absent).",
     )
     parser.add_argument(
+        "--ensure",
+        action="store_true",
+        help="Ensure demo_admin exists (creates if absent, no-op if present).",
+    )
+    parser.add_argument(
         "--output-file",
         default=None,
         help="Custom output file path for credentials (default: passwords_demo_admin.txt).",
     )
     args = parser.parse_args()
-    return seed_demo_admin(add=args.add, reset=args.reset, output_file=args.output_file)
+    return seed_demo_admin(add=args.add, reset=args.reset, ensure=args.ensure, output_file=args.output_file)
 
 
 if __name__ == "__main__":

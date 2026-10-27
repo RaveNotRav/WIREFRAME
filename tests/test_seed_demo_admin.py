@@ -325,3 +325,56 @@ def test_reset_user_can_login_through_api(tmp_path, client_unauth, monkeypatch):
     assert me_res.status_code == 200
     assert me_res.json()["username"] == "demo_admin"
 
+
+def test_ensure_admin_creates_when_absent_and_noop_when_present(tmp_path):
+    """--ensure creates demo_admin when absent, no-ops when present, never prints password."""
+    db_file = tmp_path / "ensure.db"
+    out_file = tmp_path / "creds_ensure.txt"
+
+    env = os.environ.copy()
+    env["WIREFRAME_MOCK"] = "1"
+    env["WIREFRAME_DB_PATH"] = str(db_file)
+
+    # 1. First run: demo_admin absent -> creates it
+    res1 = subprocess.run(
+        [sys.executable, "scripts/seed_demo_admin.py", "--ensure", "--output-file", str(out_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert res1.returncode == 0
+    assert "Created admin 'demo_admin'" in res1.stdout
+    assert out_file.exists()
+    content1 = out_file.read_text(encoding="utf-8")
+    pw1 = [line.split(": ", 1)[1] for line in content1.splitlines() if line.startswith("password: ")][0]
+    assert len(pw1) >= 16
+    assert pw1 not in res1.stdout
+    assert pw1 not in res1.stderr
+
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    user1 = conn.execute("SELECT * FROM users WHERE username = 'demo_admin'").fetchone()
+    assert user1 is not None
+    assert user1["role"] == "admin"
+    hash1 = user1["password_hash"]
+    conn.close()
+
+    # 2. Second run: demo_admin exists -> no-op, prints guidance, does NOT rotate
+    res2 = subprocess.run(
+        [sys.executable, "scripts/seed_demo_admin.py", "--ensure", "--output-file", str(out_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert res2.returncode == 0
+    assert "demo_admin exists; use scripts\\seed_demo_admin.py --reset to rotate password" in res2.stdout
+    assert pw1 not in res2.stdout
+    assert pw1 not in res2.stderr
+
+    conn = sqlite3.connect(str(db_file))
+    conn.row_factory = sqlite3.Row
+    user2 = conn.execute("SELECT * FROM users WHERE username = 'demo_admin'").fetchone()
+    assert user2["password_hash"] == hash1, "Password hash must not change on ensure"
+    conn.close()
+
+

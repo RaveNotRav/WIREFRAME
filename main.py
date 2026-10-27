@@ -202,8 +202,10 @@ async def health() -> dict[str, Any]:
             schema_ver = get_schema_version(_db_conn)
     except Exception:
         schema_ver = 0
+    ready = is_mock or model_loaded
     return {
         "status": "ok",
+        "ready": ready,
         "model_status": model_status,
         "model_loaded": model_loaded,
         "schema_version": schema_ver,

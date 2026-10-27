@@ -4,7 +4,7 @@ import os
 import secrets
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Cookie, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -19,6 +19,10 @@ class User(BaseModel):
     username: str
     role: str
     active: bool
+
+def utcnow_naive() -> datetime:
+    """Return current UTC time as a naive datetime object (no tzinfo)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 def hash_password(password: str, salt: bytes = None) -> tuple[str, str]:
     if salt is None:
@@ -48,7 +52,7 @@ def create_session(conn, user_id: int, expiry_hours: int = 8) -> str:
     token = secrets.token_urlsafe(32)
     token_hash = _hash_token(token)
     
-    expires_at = (datetime.utcnow() + timedelta(hours=expiry_hours)).isoformat()
+    expires_at = (utcnow_naive() + timedelta(hours=expiry_hours)).isoformat()
     
     conn.execute(
         "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
@@ -76,7 +80,7 @@ def get_current_user(session: str | None = Cookie(None)) -> User:
             raise HTTPException(status_code=401, detail="Invalid session")
             
         expires_at = datetime.fromisoformat(row["expires_at"])
-        if datetime.utcnow() > expires_at:
+        if utcnow_naive() > expires_at:
             conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
             conn.commit()
             raise HTTPException(status_code=401, detail="Session expired")
@@ -105,7 +109,7 @@ def get_optional_user(session: str | None = Cookie(None)) -> User | None:
         if not row:
             return None
         expires_at = datetime.fromisoformat(row["expires_at"])
-        if datetime.utcnow() > expires_at:
+        if utcnow_naive() > expires_at:
             conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
             conn.commit()
             return None

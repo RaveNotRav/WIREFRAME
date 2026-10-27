@@ -126,6 +126,9 @@ async def upload_image(
         logging.getLogger(__name__).error(f"Invalid image content detected: {e}")
         raise HTTPException(status_code=400, detail="Corrupt image")
 
+    comp, brgy, st = validate_location(company, barangay, street)
+    parsed_lat, parsed_lng, gps_warning = validate_gps_coordinates(gps_lat, gps_lng)
+
     Path("uploads").mkdir(exist_ok=True)
     try:
         safe_name = generate_safe_filename(file.filename)
@@ -135,9 +138,6 @@ async def upload_image(
 
     with open(out_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-
-    comp, brgy, st = validate_location(company, barangay, street)
-    parsed_lat, parsed_lng, gps_warning = validate_gps_coordinates(gps_lat, gps_lng)
 
     gps_source = None
     width, height = None, None
@@ -157,10 +157,21 @@ async def upload_image(
             
             img_t = ImageOps.exif_transpose(img)
             width, height = img_t.size
+    except HTTPException:
+        if os.path.exists(out_path):
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
+        raise
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Image processing error for {out_path}: {e}")
-        os.remove(out_path)
+        if os.path.exists(out_path):
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
         raise HTTPException(status_code=400, detail="Corrupt image")
 
     conn = get_connection()
