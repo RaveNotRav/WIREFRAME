@@ -1,7 +1,20 @@
 param(
     [switch]$Clean,
-    [switch]$SeedAdmin
+    [switch]$SeedAdmin,
+    [switch]$Public,
+    [string]$PublicOrigin
 )
+
+if ($Public) {
+    if (-not $PublicOrigin -or -not ($PublicOrigin -like "https://*")) {
+        Write-Host "ERROR: -Public requires -PublicOrigin starting with https:// (e.g. -PublicOrigin https://wireframe.xxx.ts.net)" -ForegroundColor Red
+        exit 1
+    }
+    $env:WIREFRAME_PUBLIC = "1"
+    $env:TRUSTED_PROXY = "1"
+    $env:WIREFRAME_ALLOWED_ORIGINS = $PublicOrigin
+    $env:WIREFRAME_HOST = "127.0.0.1"
+}
 
 if ($Clean) {
     Write-Host "Cleaning state..." -ForegroundColor Yellow
@@ -77,18 +90,19 @@ conn.commit()
 conn.close()
 
 with open('passwords_demo_admin.txt', 'w', encoding='utf-8') as f:
-    f.write('username: demo_admin\npassword: $admin_pw\n')
+    f.write('username: demo_admin / password: $admin_pw\n')
+    f.write('username: demo_lgu / password: $lgu_pw\n')
+    f.write('username: demo_inspector / password: $inspector_pw\n')
 "
     Write-Host "==========================================" -ForegroundColor Green
-    Write-Host "Demo users created:" -ForegroundColor Green
-    Write-Host "field_inspector : demo_inspector / $inspector_pw"
-    Write-Host "lgu_engineer    : demo_lgu       / $lgu_pw"
-    Write-Host "admin           : demo_admin     / $admin_pw"
+    Write-Host "Demo users created. Credentials saved to passwords_demo_admin.txt" -ForegroundColor Green
     Write-Host "==========================================" -ForegroundColor Green
 }
 
-Write-Host "Starting WIREFRAME in DEMO MOCK mode..." -ForegroundColor Green
-Write-Host "Backend API: http://localhost:8000" -ForegroundColor Cyan
-Write-Host "Frontend: http://localhost:8000/analyze.html" -ForegroundColor Cyan
+$hostToBind = if ($env:WIREFRAME_HOST) { $env:WIREFRAME_HOST } else { "127.0.0.1" }
 
-python -m uvicorn main:app --host 0.0.0.0 --port 8000
+Write-Host "Starting WIREFRAME in DEMO MOCK mode..." -ForegroundColor Green
+Write-Host "Backend API: http://${hostToBind}:8000" -ForegroundColor Cyan
+Write-Host "Frontend: http://${hostToBind}:8000/analyze.html" -ForegroundColor Cyan
+
+python -m uvicorn main:app --host $hostToBind --port 8000

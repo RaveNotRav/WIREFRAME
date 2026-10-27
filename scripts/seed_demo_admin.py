@@ -43,6 +43,43 @@ def choose_admin_username(conn) -> str:
     return username
 
 
+def _update_admin_credentials_file(target_path: Path, username: str, password: str) -> None:
+    """Update only the target username line in target_path, keeping other lines intact (create file if missing)."""
+    new_line = f"username: {username} / password: {password}"
+    if not target_path.exists():
+        target_path.write_text(new_line + "\n", encoding="utf-8")
+        return
+
+    raw_lines = target_path.read_text(encoding="utf-8").splitlines()
+    out_lines: list[str] = []
+    updated = False
+    i = 0
+    while i < len(raw_lines):
+        line = raw_lines[i]
+        stripped = line.strip()
+        if stripped.startswith(f"username: {username} / password:"):
+            if not updated:
+                out_lines.append(new_line)
+                updated = True
+            i += 1
+        elif stripped == f"username: {username}":
+            if not updated:
+                out_lines.append(new_line)
+                updated = True
+            if i + 1 < len(raw_lines) and raw_lines[i + 1].strip().startswith("password: "):
+                i += 2
+            else:
+                i += 1
+        else:
+            out_lines.append(line)
+            i += 1
+
+    if not updated:
+        out_lines.insert(0, new_line)
+
+    target_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+
+
 def seed_demo_admin(
     add: bool = False,
     reset: bool = False,
@@ -86,8 +123,7 @@ def seed_demo_admin(
             )
             conn.commit()
 
-            with open(target_path, "w", encoding="utf-8") as f:
-                f.write(f"username: {username}\npassword: {password}\n")
+            _update_admin_credentials_file(target_path, username, password)
 
             print(f"Created admin '{username}'. Credentials written to {target_path.name}")
             return 0
@@ -110,8 +146,7 @@ def seed_demo_admin(
                 )
             conn.commit()
 
-            with open(target_path, "w", encoding="utf-8") as f:
-                f.write(f"username: {username}\npassword: {password}\n")
+            _update_admin_credentials_file(target_path, username, password)
 
             print(f"demo_admin reset; credentials written to {target_path.name}")
             return 0

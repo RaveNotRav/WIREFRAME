@@ -115,7 +115,15 @@ async def lifespan(app: FastAPI):
         _db_conn.close()
         logger.info("DB connection closed")
 
-app = FastAPI(title="WIREFRAME", version="0.1.0", lifespan=lifespan)
+docs_enabled = os.environ.get("WIREFRAME_DOCS") == "1"
+app = FastAPI(
+    title="WIREFRAME",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if docs_enabled else None,
+    redoc_url="/redoc" if docs_enabled else None,
+    openapi_url="/openapi.json" if docs_enabled else None,
+)
 
 from fastapi.exceptions import RequestValidationError
 from backend.routes import batches, analysis, auth, users, config, sites, reporting, admin
@@ -170,6 +178,8 @@ async def serve_analyze():
 
 @app.get("/states-preview.html")
 async def serve_states_preview():
+    if os.environ.get("WIREFRAME_PUBLIC") == "1":
+        raise HTTPException(status_code=404, detail="Not found")
     with open("frontend/pages/states-preview.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
@@ -274,6 +284,6 @@ async def serve_root():
 
 if __name__ == "__main__":
     import uvicorn
-    host = os.environ.get("WIREFRAME_HOST", "0.0.0.0")
+    host = os.environ.get("WIREFRAME_HOST", "127.0.0.1")
     port = int(os.environ.get("WIREFRAME_PORT", 8000))
     uvicorn.run("main:app", host=host, port=port, reload=True)

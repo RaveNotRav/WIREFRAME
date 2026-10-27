@@ -17,7 +17,7 @@ from PIL import Image
 from PIL.Image import DecompressionBombError
 
 from backend import main_state
-from backend.auth import User, check_rate_limit, get_current_user, verify_csrf, get_optional_user, check_anon_rate_limit, _hash_token, verify_analysis_access
+from backend.auth import User, check_rate_limit, get_current_user, verify_csrf, get_optional_user, check_anon_rate_limit, _hash_token, verify_analysis_access, cookie_secure
 from backend.database import get_connection
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
@@ -169,7 +169,7 @@ async def create_batch(
         resp_data["warning"] = gps_warning
     resp_obj = JSONResponse(content=resp_data)
     if guest_session_id and guest_token:
-        resp_obj.set_cookie(key="guest_session", value=guest_token, httponly=True, secure=(req.url.scheme == "https"), samesite="lax", max_age=86400, path="/")
+        resp_obj.set_cookie(key="guest_session", value=guest_token, httponly=True, secure=cookie_secure(req), samesite="lax", max_age=86400, path="/")
     return resp_obj
 
 

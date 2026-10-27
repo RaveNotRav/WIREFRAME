@@ -22,6 +22,7 @@ from backend import main_state
 from backend.auth import (
     check_anon_rate_limit,
     _hash_token,
+    cookie_secure,
     get_optional_user,
     verify_analysis_access,
     User,
@@ -214,7 +215,7 @@ async def upload_image(
             "guest_session", 
             guest_token, 
             httponly=True, 
-            secure=(req.url.scheme == "https"),
+            secure=cookie_secure(req),
             samesite="lax",
             max_age=86400,
             path="/"

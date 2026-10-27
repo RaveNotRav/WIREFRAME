@@ -1,4 +1,4 @@
-﻿def test_auth_gaps(client_unauth):
+def test_auth_gaps(client_unauth):
     print("\n--- AUTH TESTS ---")
     res = client_unauth.get("/api/stats/dashboard")
     print("GET /api/stats/dashboard (No Auth):", res.status_code, res.json() if res.status_code != 401 else "")
@@ -37,3 +37,172 @@ def test_form_limits(client_admin):
     )
     print("POST /api/analysis/upload (Oversized forms):", res.status_code, res.json())
     assert res.status_code == 422
+
+
+# --- Security Batch S1 Tests ---
+
+def test_s1_cookie_secure_flags(client_unauth, monkeypatch, _init_settings):
+    from fastapi.testclient import TestClient
+    from main import app
+    # 1. Without WIREFRAME_PUBLIC (default/local dev over http)
+    monkeypatch.delenv("WIREFRAME_PUBLIC", raising=False)
+    # Upload guest image
+    real_img = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    data = {"company": "Test Co", "barangay": "Test Brgy", "street": "Test St"}
+    res = client_unauth.post(
+        "/api/analysis/upload",
+        data=data,
+        files={"file": ("guest1.png", real_img, "image/png")},
+        headers={"X-Requested-With": "XMLHttpRequest"}
+    )
+    assert res.status_code == 200
+    set_cookie_header = res.headers.get("set-cookie", "")
+    assert "guest_session=" in set_cookie_header
+    assert "Secure" not in set_cookie_header
+    assert "HttpOnly" in set_cookie_header
+    assert "samesite=lax" in set_cookie_header.lower()
+
+    # 2. With WIREFRAME_PUBLIC=1
+    monkeypatch.setenv("WIREFRAME_PUBLIC", "1")
+    client_unauth_pub = TestClient(app)
+    res_pub = client_unauth_pub.post(
+        "/api/analysis/upload",
+        data=data,
+        files={"file": ("guest2.png", real_img, "image/png")},
+        headers={"X-Requested-With": "XMLHttpRequest"}
+    )
+    assert res_pub.status_code == 200
+    set_cookie_pub = res_pub.headers.get("set-cookie", "")
+    assert "guest_session=" in set_cookie_pub
+    assert "secure" in set_cookie_pub.lower()
+    assert "httponly" in set_cookie_pub.lower()
+
+    # 3. Login session cookie with WIREFRAME_PUBLIC=1
+    # Create test user
+    from backend.auth import hash_password
+    h, s = hash_password("Password123!")
+    _init_settings.execute(
+        "INSERT INTO users (username, password_hash, salt, role, active) VALUES (?, ?, ?, 'admin', 1)",
+        ("s1_admin", h, s)
+    )
+    _init_settings.commit()
+
+    login_res = client_unauth.post(
+        "/api/auth/login",
+        json={"username": "s1_admin", "password": "Password123!"},
+        headers={"X-Requested-With": "XMLHttpRequest"}
+    )
+    assert login_res.status_code == 200
+    login_set_cookie = login_res.headers.get("set-cookie", "")
+    assert "session=" in login_set_cookie
+    assert "secure" in login_set_cookie.lower()
+    assert "httponly" in login_set_cookie.lower()
+    assert "samesite=lax" in login_set_cookie.lower()
+
+
+def test_s1_xff_trusted_proxy(client_unauth, monkeypatch):
+    from backend.auth import reset_rate_limits, check_rate_limit
+    from fastapi import Request
+
+    reset_rate_limits()
+
+    # When TRUSTED_PROXY is unset, right-most IP in XFF is ignored and client.host (testclient) is used
+    monkeypatch.delenv("TRUSTED_PROXY", raising=False)
+    scope = {
+        "type": "http",
+        "client": ("127.0.0.1", 12345),
+        "headers": [(b"x-forwarded-for", b"6.6.6.6, 1.2.3.4")]
+    }
+    req1 = Request(scope)
+    check_rate_limit(req1, "test_action", "user1", limit=2, window=60)
+    check_rate_limit(req1, "test_action", "user1", limit=2, window=60)
+    import pytest
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        check_rate_limit(req1, "test_action", "user1", limit=2, window=60)
+    assert exc.value.status_code == 429
+
+    reset_rate_limits()
+
+    # When TRUSTED_PROXY=1, uses the last entry in X-Forwarded-For
+    monkeypatch.setenv("TRUSTED_PROXY", "1")
+    scope_a = {
+        "type": "http",
+        "client": ("127.0.0.1", 12345),
+        "headers": [(b"x-forwarded-for", b"6.6.6.6, 1.2.3.4")]
+    }
+    scope_b = {
+        "type": "http",
+        "client": ("127.0.0.1", 12345),
+        "headers": [(b"x-forwarded-for", b"9.9.9.9, 5.6.7.8")]
+    }
+    req_a = Request(scope_a)
+    req_b = Request(scope_b)
+
+    # 2 requests from 1.2.3.4 reach the limit
+    check_rate_limit(req_a, "test_action", "user1", limit=2, window=60)
+    check_rate_limit(req_a, "test_action", "user1", limit=2, window=60)
+    with pytest.raises(HTTPException):
+        check_rate_limit(req_a, "test_action", "user1", limit=2, window=60)
+
+    # But 5.6.7.8 has its own separate bucket and succeeds
+    check_rate_limit(req_b, "test_action", "user1", limit=2, window=60)
+
+
+def test_s1_csrf_allowlist(client_unauth, monkeypatch):
+    monkeypatch.setenv("WIREFRAME_ALLOWED_ORIGINS", "https://wireframe.test.ts.net, https://sub.example.com/")
+
+    # 1. Matching allowed origin -> accepted
+    res1 = client_unauth.post(
+        "/api/auth/login",
+        json={"username": "foo", "password": "bar"},
+        headers={"Origin": "https://wireframe.test.ts.net"}
+    )
+    # Not 403 CSRF failed (will be 401 or similar auth error)
+    assert res1.status_code != 403
+
+    # 2. Matching referer when origin is absent -> accepted
+    res2 = client_unauth.post(
+        "/api/auth/login",
+        json={"username": "foo", "password": "bar"},
+        headers={"Referer": "https://wireframe.test.ts.net/login.html"}
+    )
+    assert res2.status_code != 403
+
+    # 3. Disallowed evil origin -> 403
+    res3 = client_unauth.post(
+        "/api/auth/login",
+        json={"username": "foo", "password": "bar"},
+        headers={"Origin": "https://evil.attacker.com"}
+    )
+    assert res3.status_code == 403
+    assert "CSRF" in res3.text
+
+    # 4. Empty allowlist with mismatched host -> 403
+    monkeypatch.setenv("WIREFRAME_ALLOWED_ORIGINS", "")
+    res4 = client_unauth.post(
+        "/api/auth/login",
+        json={"username": "foo", "password": "bar"},
+        headers={"Origin": "https://wireframe.test.ts.net", "Host": "127.0.0.1:8000"}
+    )
+    assert res4.status_code == 403
+
+
+def test_s1_docs_and_states_preview_toggles(client_unauth, monkeypatch):
+    # 1. /states-preview.html returns 200 locally, 404 with WIREFRAME_PUBLIC=1
+    monkeypatch.delenv("WIREFRAME_PUBLIC", raising=False)
+    res_preview_dev = client_unauth.get("/states-preview.html")
+    assert res_preview_dev.status_code == 200
+
+    monkeypatch.setenv("WIREFRAME_PUBLIC", "1")
+    res_preview_pub = client_unauth.get("/states-preview.html")
+    assert res_preview_pub.status_code == 404
+
+    # 2. Docs endpoints default to 404 unless WIREFRAME_DOCS=1
+    # Note: FastAPI builds OpenAPI routes at app instantiation. Test both via client / app.
+    res_docs = client_unauth.get("/docs")
+    res_openapi = client_unauth.get("/openapi.json")
+    # By default WIREFRAME_DOCS is unset in test session -> 404
+    assert res_docs.status_code == 404
+    assert res_openapi.status_code == 404
+

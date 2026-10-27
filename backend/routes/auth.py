@@ -5,6 +5,7 @@ from backend.auth import (
     User,
     check_rate_limit,
     clear_rate_limit,
+    cookie_secure,
     create_session,
     get_current_user,
     hash_password,
@@ -45,13 +46,13 @@ async def login(req: Request, res: Response, payload: LoginRequest):
         token = create_session(conn, user["id"])
         
         # Set cookie
-        res.delete_cookie("guest_session", path="/")
+        res.delete_cookie("guest_session", path="/", httponly=True, samesite="lax", secure=cookie_secure(req))
         res.set_cookie(
             key="session",
             value=token,
             httponly=True,
             samesite="lax",
-            secure=(req.url.scheme == "https"),
+            secure=cookie_secure(req),
             max_age=8 * 3600,
             path="/",
         )
@@ -60,10 +61,10 @@ async def login(req: Request, res: Response, payload: LoginRequest):
         conn.close()
 
 @router.post("/logout", dependencies=[Depends(verify_csrf)])
-async def logout(res: Response, user: User = Depends(get_current_user)):
+async def logout(req: Request, res: Response, user: User = Depends(get_current_user)):
     # Simple logout: clear cookie. We could also explicitly delete the session from DB.
     # To delete from DB, we'd need the token. get_current_user could return it, but simple clearing works.
-    res.delete_cookie("session", path="/")
+    res.delete_cookie("session", path="/", httponly=True, samesite="lax", secure=cookie_secure(req))
     return {"status": "success"}
 
 @router.get("/me")

@@ -175,6 +175,17 @@ def test_created_user_can_login_through_api(tmp_path, client_unauth, monkeypatch
     assert me_data["role"] == "admin"
 
 
+def _extract_admin_pw(content: str, username: str = "demo_admin") -> str:
+    prefix = f"username: {username} / password: "
+    for line in content.splitlines():
+        if line.strip().startswith(prefix):
+            return line.strip()[len(prefix):]
+    # Fallback for 2-line format
+    pws = [line.split(": ", 1)[1] for line in content.splitlines() if line.startswith("password: ")]
+    assert pws, f"No password found for {username}"
+    return pws[0]
+
+
 def test_seed_reset_absent_creates_admin(tmp_path):
     """TASK 4: --reset creates demo_admin when absent, never leaks password to stdout/stderr."""
     db_file = tmp_path / "reset_absent.db"
@@ -206,10 +217,8 @@ def test_seed_reset_absent_creates_admin(tmp_path):
 
     assert out_file.exists()
     content = out_file.read_text(encoding="utf-8")
-    assert "username: demo_admin" in content
-    pws = [line.split(": ", 1)[1] for line in content.splitlines() if line.startswith("password: ")]
-    assert len(pws) == 1
-    pw = pws[0]
+    assert "username: demo_admin / password: " in content
+    pw = _extract_admin_pw(content)
     assert len(pw) >= 16
 
     from backend.auth import verify_password
@@ -239,7 +248,7 @@ def test_seed_reset_existing_changes_hash_and_verifies(tmp_path):
     )
     assert res1.returncode == 0
     content1 = out_file.read_text(encoding="utf-8")
-    pw1 = [line.split(": ", 1)[1] for line in content1.splitlines() if line.startswith("password: ")][0]
+    pw1 = _extract_admin_pw(content1)
 
     conn = sqlite3.connect(str(db_file))
     conn.row_factory = sqlite3.Row
@@ -273,10 +282,8 @@ def test_seed_reset_existing_changes_hash_and_verifies(tmp_path):
     conn.close()
 
     content2 = out_file.read_text(encoding="utf-8")
-    assert "username: demo_admin" in content2
-    pws2 = [line.split(": ", 1)[1] for line in content2.splitlines() if line.startswith("password: ")]
-    assert len(pws2) == 1
-    pw2 = pws2[0]
+    assert "username: demo_admin / password: " in content2
+    pw2 = _extract_admin_pw(content2)
     assert len(pw2) >= 16
     assert pw2 != pw1
 
@@ -305,10 +312,8 @@ def test_reset_user_can_login_through_api(tmp_path, client_unauth, monkeypatch):
     assert code2 == 0
 
     content = out_file.read_text(encoding="utf-8")
-    lines = dict(line.split(": ", 1) for line in content.strip().splitlines() if ": " in line)
-    username = lines["username"]
-    password = lines["password"]
-    assert username == "demo_admin"
+    username = "demo_admin"
+    password = _extract_admin_pw(content, username)
 
     # API login
     login_res = client_unauth.post(
@@ -346,7 +351,7 @@ def test_ensure_admin_creates_when_absent_and_noop_when_present(tmp_path):
     assert "Created admin 'demo_admin'" in res1.stdout
     assert out_file.exists()
     content1 = out_file.read_text(encoding="utf-8")
-    pw1 = [line.split(": ", 1)[1] for line in content1.splitlines() if line.startswith("password: ")][0]
+    pw1 = _extract_admin_pw(content1)
     assert len(pw1) >= 16
     assert pw1 not in res1.stdout
     assert pw1 not in res1.stderr
@@ -376,5 +381,60 @@ def test_ensure_admin_creates_when_absent_and_noop_when_present(tmp_path):
     user2 = conn.execute("SELECT * FROM users WHERE username = 'demo_admin'").fetchone()
     assert user2["password_hash"] == hash1, "Password hash must not change on ensure"
     conn.close()
+
+
+def test_reset_and_ensure_preserve_other_account_lines(tmp_path):
+    """Tmp file containing 3 accounts -> after --reset (and --ensure) only the demo_admin line changes; never prints password."""
+    db_file = tmp_path / "three_accounts.db"
+    out_file = tmp_path / "creds_three.txt"
+
+    old_admin_line = "username: demo_admin / password: OldAdminPassword12345"
+    lgu_line = "username: demo_lgu / password: KeepLguPassword12345"
+    insp_line = "username: demo_inspector / password: KeepInspPassword12345"
+    out_file.write_text(f"{old_admin_line}\n{lgu_line}\n{insp_line}\n", encoding="utf-8")
+
+    env = os.environ.copy()
+    env["WIREFRAME_MOCK"] = "1"
+    env["WIREFRAME_DB_PATH"] = str(db_file)
+
+    # 1. Run --ensure when demo_admin is not in DB yet -> updates only demo_admin line in 3-line file
+    res_ensure = subprocess.run(
+        [sys.executable, "scripts/seed_demo_admin.py", "--ensure", "--output-file", str(out_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert res_ensure.returncode == 0
+    lines_after_ensure = out_file.read_text(encoding="utf-8").splitlines()
+    assert len(lines_after_ensure) == 3
+    assert lines_after_ensure[0].startswith("username: demo_admin / password: ")
+    assert lines_after_ensure[0] != old_admin_line
+    assert lines_after_ensure[1] == lgu_line
+    assert lines_after_ensure[2] == insp_line
+
+    ensure_pw = _extract_admin_pw("\n".join(lines_after_ensure))
+    assert ensure_pw not in res_ensure.stdout
+    assert ensure_pw not in res_ensure.stderr
+
+    # 2. Run --reset -> rotates only demo_admin line, keeps demo_lgu and demo_inspector intact
+    res_reset = subprocess.run(
+        [sys.executable, "scripts/seed_demo_admin.py", "--reset", "--output-file", str(out_file)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert res_reset.returncode == 0
+    lines_after_reset = out_file.read_text(encoding="utf-8").splitlines()
+    assert len(lines_after_reset) == 3
+    assert lines_after_reset[0].startswith("username: demo_admin / password: ")
+    assert lines_after_reset[0] != lines_after_ensure[0]
+    assert lines_after_reset[1] == lgu_line
+    assert lines_after_reset[2] == insp_line
+
+    reset_pw = _extract_admin_pw("\n".join(lines_after_reset))
+    assert len(reset_pw) >= 16
+    assert reset_pw not in res_reset.stdout
+    assert reset_pw not in res_reset.stderr
+
 
 
