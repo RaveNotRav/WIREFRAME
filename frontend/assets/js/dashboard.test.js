@@ -373,5 +373,23 @@ describe('Admin Dashboard Polish Tests', () => {
                 'applyHeatmapLayout must render visibleData so cells restore on expansion'
             );
         });
+
+        it('wiring: include-mock toggle re-fetches dashboard stats with include_mock param', () => {
+            assert.match(
+                dashboardHtml,
+                /id=["']include-mock-toggle["']/,
+                'dashboard.html must define #include-mock-toggle'
+            );
+            assert.match(
+                dashboardJs,
+                /mockToggle\.addEventListener\(['"]change['"],\s*\(e\)\s*=>\s*\{[\s\S]*?state\.includeMock\s*=\s*e\.target\.checked[\s\S]*?loadDashboardStats\(\)/,
+                'dashboard.js must bind change event on mockToggle to update state and call loadDashboardStats'
+            );
+            assert.match(
+                dashboardJs,
+                /\/api\/stats\/dashboard\?include_mock=\$\{state\.includeMock\}/,
+                'loadDashboardStats must pass include_mock query param matching state.includeMock'
+            );
+        });
     });
 });
