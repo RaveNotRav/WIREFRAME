@@ -206,3 +206,80 @@ def test_s1_docs_and_states_preview_toggles(client_unauth, monkeypatch):
     assert res_docs.status_code == 404
     assert res_openapi.status_code == 404
 
+
+def test_s2_security_headers_and_csp_report_only(client_unauth, monkeypatch):
+    expected_csp = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'"
+    )
+
+    def assert_common_headers(res, expect_hsts: bool, expect_api_no_store: bool):
+        assert res.headers.get("X-Content-Type-Options") == "nosniff"
+        assert res.headers.get("X-Frame-Options") == "DENY"
+        assert res.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+        assert (
+            res.headers.get("Permissions-Policy")
+            == "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
+        )
+        assert res.headers.get("Cross-Origin-Opener-Policy") == "same-origin"
+        assert res.headers.get("Content-Security-Policy-Report-Only") == expected_csp
+        assert "Content-Security-Policy" not in res.headers
+
+        if expect_hsts:
+            assert res.headers.get("Strict-Transport-Security") == "max-age=31536000"
+        else:
+            assert "Strict-Transport-Security" not in res.headers
+
+        if expect_api_no_store:
+            assert res.headers.get("Cache-Control") == "no-store"
+
+    # 1. Default mode (WIREFRAME_PUBLIC unset) -> HSTS absent
+    monkeypatch.delenv("WIREFRAME_PUBLIC", raising=False)
+
+    res_root = client_unauth.get("/")
+    assert res_root.status_code == 200
+    assert_common_headers(res_root, expect_hsts=False, expect_api_no_store=False)
+
+    res_analyze = client_unauth.get("/analyze.html")
+    assert res_analyze.status_code == 200
+    assert_common_headers(res_analyze, expect_hsts=False, expect_api_no_store=False)
+
+    res_health = client_unauth.get("/api/health")
+    assert res_health.status_code == 200
+    assert_common_headers(res_health, expect_hsts=False, expect_api_no_store=True)
+
+    res_404 = client_unauth.get("/nonexistent-s2-test-path")
+    assert res_404.status_code == 404
+    assert_common_headers(res_404, expect_hsts=False, expect_api_no_store=False)
+
+    res_401 = client_unauth.get("/api/auth/me")
+    assert res_401.status_code == 401
+    assert_common_headers(res_401, expect_hsts=False, expect_api_no_store=True)
+
+    res_static = client_unauth.get("/assets/css/tokens.css")
+    assert res_static.status_code == 200
+    assert res_static.headers.get("X-Content-Type-Options") == "nosniff"
+    assert_common_headers(res_static, expect_hsts=False, expect_api_no_store=False)
+
+    # 2. Public mode (WIREFRAME_PUBLIC=1) -> HSTS present
+    monkeypatch.setenv("WIREFRAME_PUBLIC", "1")
+    for path, is_api, expected_code in [
+        ("/", False, 200),
+        ("/analyze.html", False, 200),
+        ("/api/health", True, 200),
+        ("/nonexistent-s2-test-path", False, 404),
+        ("/api/auth/me", True, 401),
+    ]:
+        res = client_unauth.get(path)
+        assert res.status_code == expected_code
+        assert_common_headers(res, expect_hsts=True, expect_api_no_store=is_api)
+
+
