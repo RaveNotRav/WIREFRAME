@@ -380,12 +380,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             const displayName = item.filename || `Analysis #${item.id}`;
             const timeAgo = formatRelativeTime(item.created_at);
             const pillHtml = getRiskScorePill(item.risk_score);
+            const publicBadgeHtml = Number(item.is_public) === 1
+                ? ` <span class="recent-public-badge">${escapeHtml('Public tip')}</span>`
+                : '';
             
             row.innerHTML = `
                 <img src="${thumbUrl ? escapeHtml(thumbUrl) : fallbackSvg}" loading="lazy" decoding="async" class="recent-thumb" alt="${escapeHtml(displayName)}" onerror="this.src='${fallbackSvg}'">
                 <div class="recent-info">
                     <span class="recent-filename" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
-                    <span class="recent-time">${escapeHtml(timeAgo)}</span>
+                    <span class="recent-time">${escapeHtml(timeAgo)}${publicBadgeHtml}</span>
                 </div>
                 ${pillHtml}
             `;
@@ -547,9 +550,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Note: In a real app we'd handle pagination, 
             // but for dashboard view we'll load the first 100 
             // or rely on server-side sort if supported.
-            const mockQuery = state.includeMock ? '' : '&is_mock=0';
+            const mockQuery = state.includeMock ? '' : '&is_public=0&is_mock=0';
             const cacheBuster = `&_t=${Date.now()}`;
-            const res = await fetch(`/api/analysis?limit=100&is_public=0&status=complete${mockQuery}${cacheBuster}`);
+            const res = await fetch(`/api/analysis?limit=100&status=complete${mockQuery}${cacheBuster}`);
             if (!res.ok) throw new Error('Failed to fetch analyses');
             const data = await res.json();
             const allAnalyses = data.data || [];

@@ -261,18 +261,34 @@ describe('Admin Dashboard Polish Tests', () => {
     });
 
     describe('Risk Band Consistency & Query Parity', () => {
-        it('Recent Analyses and dashboard stats query verified inspector records only (&is_public=0&status=complete)', () => {
-            // Verify loadAllAnalyses queries is_public=0 and status=complete
+        it('Recent Analyses and dashboard stats honor includeMock toggle (unchecked: is_public=0 & is_mock=0; checked: all complete)', () => {
+            // Verify loadAllAnalyses branches on state.includeMock: unchecked restricts is_public=0&is_mock=0, checked omits both
             assert.match(
                 dashboardJs,
-                /\/api\/analysis\?limit=100&is_public=0&status=complete/,
-                'loadAllAnalyses must include is_public=0 and status=complete'
+                /const\s+mockQuery\s*=\s*state\.includeMock\s*\?\s*['"]{2}\s*:\s*['"]&is_public=0&is_mock=0['"]/,
+                'loadAllAnalyses must set mockQuery to empty when checked and &is_public=0&is_mock=0 when unchecked'
+            );
+            assert.match(
+                dashboardJs,
+                /\/api\/analysis\?limit=100&status=complete\$\{mockQuery\}\$\{cacheBuster\}/,
+                'loadAllAnalyses base URL must not hardcode is_public=0 when includeMock is checked'
             );
             // Verify realCheckRes queries is_public=0 and status=complete
             assert.match(
                 dashboardJs,
                 /\/api\/analysis\?is_mock=0&is_public=0&status=complete/,
                 'realCheckRes must check verified complete records only'
+            );
+            // Verify Public tip badge on is_public=1 rows
+            assert.match(
+                dashboardJs,
+                /Number\(item\.is_public\)\s*===\s*1[\s\S]*?recent-public-badge[\s\S]*?escapeHtml\(['"]Public tip['"]\)/,
+                'renderRecentAnalyses must render escaped Public tip badge when is_public=1'
+            );
+            assert.match(
+                dashboardHtml,
+                /\.recent-public-badge\s*\{/,
+                'dashboard.html must style .recent-public-badge'
             );
         });
 
