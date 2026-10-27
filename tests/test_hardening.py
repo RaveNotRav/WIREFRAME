@@ -208,6 +208,18 @@ def test_s1_docs_and_states_preview_toggles(client_unauth, monkeypatch):
 
 
 def test_s2_security_headers_and_csp_report_only(client_unauth, monkeypatch):
+    expected_enforced_csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "frame-ancestors 'none'"
+    )
     expected_csp = (
         "default-src 'self'; "
         "script-src 'self'; "
@@ -230,8 +242,8 @@ def test_s2_security_headers_and_csp_report_only(client_unauth, monkeypatch):
             == "geolocation=(self), camera=(), microphone=(), payment=(), usb=()"
         )
         assert res.headers.get("Cross-Origin-Opener-Policy") == "same-origin"
+        assert res.headers.get("Content-Security-Policy") == expected_enforced_csp
         assert res.headers.get("Content-Security-Policy-Report-Only") == expected_csp
-        assert "Content-Security-Policy" not in res.headers
 
         if expect_hsts:
             assert res.headers.get("Strict-Transport-Security") == "max-age=31536000"
@@ -241,7 +253,7 @@ def test_s2_security_headers_and_csp_report_only(client_unauth, monkeypatch):
         if expect_api_no_store:
             assert res.headers.get("Cache-Control") == "no-store"
 
-    # 1. Default mode (WIREFRAME_PUBLIC unset) -> HSTS absent
+    # 1. Default mode (WIREFRAME_PUBLIC unset) -> HSTS absent, design-system reachable
     monkeypatch.delenv("WIREFRAME_PUBLIC", raising=False)
 
     res_root = client_unauth.get("/")
@@ -269,17 +281,37 @@ def test_s2_security_headers_and_csp_report_only(client_unauth, monkeypatch):
     assert res_static.headers.get("X-Content-Type-Options") == "nosniff"
     assert_common_headers(res_static, expect_hsts=False, expect_api_no_store=False)
 
-    # 2. Public mode (WIREFRAME_PUBLIC=1) -> HSTS present
+    res_design_dev = client_unauth.get("/pages/design-system.html")
+    assert res_design_dev.status_code == 200
+    assert_common_headers(res_design_dev, expect_hsts=False, expect_api_no_store=False)
+
+    res_states_pages_dev = client_unauth.get("/pages/states-preview.html")
+    assert res_states_pages_dev.status_code == 200
+    assert_common_headers(res_states_pages_dev, expect_hsts=False, expect_api_no_store=False)
+
+    res_test_js_dev = client_unauth.get("/assets/js/dashboard.test.js")
+    assert res_test_js_dev.status_code == 200
+    assert_common_headers(res_test_js_dev, expect_hsts=False, expect_api_no_store=False)
+
+    # 2. Public mode (WIREFRAME_PUBLIC=1) -> HSTS present, dev pages and *.test.js return 404
     monkeypatch.setenv("WIREFRAME_PUBLIC", "1")
     for path, is_api, expected_code in [
         ("/", False, 200),
         ("/analyze.html", False, 200),
+        ("/pages/analyze.html", False, 200),
+        ("/assets/css/tokens.css", False, 200),
+        ("/assets/js/dashboard.js", False, 200),
         ("/api/health", True, 200),
         ("/nonexistent-s2-test-path", False, 404),
         ("/api/auth/me", True, 401),
+        ("/states-preview.html", False, 404),
+        ("/pages/states-preview.html", False, 404),
+        ("/pages/Design-System.html", False, 404),
+        ("/pages/design%2Dsystem.html", False, 404),
+        ("/assets/js/dashboard.test.js", False, 404),
     ]:
         res = client_unauth.get(path)
-        assert res.status_code == expected_code
+        assert res.status_code == expected_code, f"Expected {expected_code} for {path}, got {res.status_code}"
         assert_common_headers(res, expect_hsts=True, expect_api_no_store=is_api)
 
 

@@ -5,6 +5,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -125,6 +126,19 @@ app = FastAPI(
     openapi_url="/openapi.json" if docs_enabled else None,
 )
 
+CSP_ENFORCED_VALUE = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
+)
+
 CSP_REPORT_ONLY_VALUE = (
     "default-src 'self'; "
     "script-src 'self'; "
@@ -139,9 +153,29 @@ CSP_REPORT_ONLY_VALUE = (
 )
 
 
+_PUBLIC_HIDDEN_PAGES = {"states-preview.html", "design-system.html"}
+
+
+def _is_blocked_in_public_mode(request: Request) -> bool:
+    raw_path = request.scope.get("raw_path")
+    candidates = [unquote(request.url.path).lower()]
+    if isinstance(raw_path, (bytes, bytearray)) and raw_path:
+        candidates.append(unquote(raw_path.decode("latin-1", errors="ignore")).lower())
+    for decoded in candidates:
+        normalized = decoded.replace("\\", "/").rstrip("/")
+        final_segment = normalized.rsplit("/", 1)[-1]
+        if final_segment in _PUBLIC_HIDDEN_PAGES or final_segment.endswith(".test.js"):
+            return True
+    return False
+
+
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
-    response = await call_next(request)
+    is_public_mode = os.environ.get("WIREFRAME_PUBLIC") == "1"
+    if is_public_mode and _is_blocked_in_public_mode(request):
+        response = JSONResponse(status_code=404, content={"detail": "Not found"})
+    else:
+        response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -150,8 +184,9 @@ async def security_headers_middleware(request: Request, call_next):
         "geolocation=(self), camera=(), microphone=(), payment=(), usb=()",
     )
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Content-Security-Policy", CSP_ENFORCED_VALUE)
     response.headers.setdefault("Content-Security-Policy-Report-Only", CSP_REPORT_ONLY_VALUE)
-    if os.environ.get("WIREFRAME_PUBLIC") == "1":
+    if is_public_mode:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     if request.url.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
@@ -210,8 +245,6 @@ async def serve_analyze():
 
 @app.get("/states-preview.html")
 async def serve_states_preview():
-    if os.environ.get("WIREFRAME_PUBLIC") == "1":
-        raise HTTPException(status_code=404, detail="Not found")
     with open("frontend/pages/states-preview.html", "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
