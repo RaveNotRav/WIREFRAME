@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from backend.auth import (
     User,
+    _hash_token,
     check_rate_limit,
     clear_rate_limit,
     cookie_secure,
@@ -61,9 +62,19 @@ async def login(req: Request, res: Response, payload: LoginRequest):
         conn.close()
 
 @router.post("/logout", dependencies=[Depends(verify_csrf)])
-async def logout(req: Request, res: Response, user: User = Depends(get_current_user)):
-    # Simple logout: clear cookie. We could also explicitly delete the session from DB.
-    # To delete from DB, we'd need the token. get_current_user could return it, but simple clearing works.
+async def logout(
+    req: Request,
+    res: Response,
+    session: str | None = Cookie(None),
+    user: User = Depends(get_current_user),
+):
+    if isinstance(session, str) and session:
+        conn = get_connection()
+        try:
+            conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_hash_token(session),))
+            conn.commit()
+        finally:
+            conn.close()
     res.delete_cookie("session", path="/", httponly=True, samesite="lax", secure=cookie_secure(req))
     return {"status": "success"}
 

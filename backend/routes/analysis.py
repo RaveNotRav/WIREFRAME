@@ -526,7 +526,7 @@ async def calibrate_analysis(
     try:
         a = conn.execute(
             """SELECT status, is_public, created_by, guest_session_id, width, height, pole_bbox_json,
-                      assumed_pole_height_m, sag_meters, clearance_available, clearance_ok, margin_error_m
+                      assumed_pole_height_m, sag_meters, clearance_available, clearance_ok, margin_error_m, risk_score
                FROM analyses WHERE id = ?""",
             (analysis_id,),
         ).fetchone()
@@ -608,9 +608,13 @@ async def calibrate_analysis(
         max_wire_crs_val = max((ew.get("crs") or 0.0 for ew in evaluated_wires), default=0.0)
         from backend.formulas import compute_crs_band
         max_wire_band = compute_crs_band(float(max_wire_crs_val))
+        analysis_band = compute_crs_band(float(a["risk_score"])) if a["risk_score"] is not None else max_wire_band
+        calib_clearance_status = {0: "below", 1: "above", 2: "near"}.get(rollup["clearance_ok"], "no_pole")
         overall_safety = determine_overall_safety(
             [ew["safety_level"] for ew in evaluated_wires],
             max_wire_band=max_wire_band if max_wire_band != "unavailable" else None,
+            analysis_band=analysis_band if analysis_band != "unavailable" else None,
+            clearance_status=calib_clearance_status,
         )
 
         # Audit payload with previous values

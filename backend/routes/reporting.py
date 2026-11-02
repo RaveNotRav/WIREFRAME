@@ -332,6 +332,7 @@ def export_geojson(
         features = []
         allow_invalid = (include_invalid or payload.include_invalid) and (user.role in ("admin", "lgu_engineer"))
         skipped_count = 0
+        skipped_no_gps = 0
         
         for aid in payload.analysis_ids:
             data = _get_analysis_data(conn, aid)
@@ -354,6 +355,7 @@ def export_geojson(
             lat = data.get("gps_lat")
             lng = data.get("gps_lng")
             if lat is None or lng is None:
+                skipped_no_gps += 1
                 continue
             
             wires = data.get("wires", [])
@@ -387,7 +389,8 @@ def export_geojson(
         fc = {
             "type": "FeatureCollection",
             "features": features,
-            "skipped_invalid": skipped_count
+            "skipped_invalid": skipped_count,
+            "skipped_no_gps": skipped_no_gps
         }
         
         return Response(
@@ -395,7 +398,8 @@ def export_geojson(
             media_type="application/geo+json",
             headers={
                 "X-Skipped-Invalid": str(skipped_count),
-                "X-Skipped-Count": str(skipped_count)
+                "X-Skipped-No-Gps": str(skipped_no_gps),
+                "X-Skipped-Count": str(skipped_count + skipped_no_gps)
             }
         )
     finally:

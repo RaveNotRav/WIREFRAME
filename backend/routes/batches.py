@@ -35,6 +35,7 @@ async def create_batch(
     barangay: str | None = Form(None),
     street: str | None = Form(None),
     sector: str | None = Form(None),
+    notes: str | None = Form(None, max_length=2000),
     gps_lat: str | None = Form(None),
     gps_lng: str | None = Form(None),
     user: User | None = Depends(get_optional_user)
@@ -145,15 +146,26 @@ async def create_batch(
         site_id = get_or_create_site(conn, comp, brgy, st, lat_val, lng_val)
             
         is_mock_flag = 1 if os.getenv("WIREFRAME_MOCK") == "1" else 0
+        notes_val = notes if isinstance(notes, str) else None
         for safe_name in saved_files:
             conn.execute(
-                "INSERT INTO analyses (filename, status, company, barangay, street, sector, batch_id, created_by, site_id, is_mock, guest_session_id, is_public, gps_lat, gps_lng, gps_source) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (safe_name, comp, brgy, st, sector, batch_id, user.id if user else None, site_id, is_mock_flag, guest_session_id, is_public, lat_val, lng_val, "manual" if lat_val is not None else None)
+                "INSERT INTO analyses (filename, status, company, barangay, street, sector, notes, batch_id, created_by, site_id, is_mock, guest_session_id, is_public, gps_lat, gps_lng, gps_source) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (safe_name, comp, brgy, st, sector, notes_val, batch_id, user.id if user else None, site_id, is_mock_flag, guest_session_id, is_public, lat_val, lng_val, "manual" if lat_val is not None else None)
             )
             
         conn.commit()
     except HTTPException:
         conn.rollback()
+        for prev_name in saved_files:
+            prev_path = os.path.join("uploads", prev_name)
+            if os.path.exists(prev_path):
+                os.remove(prev_path)
+            prev_thumb = "thumb_" + prev_name
+            if not prev_thumb.lower().endswith((".jpg", ".jpeg")):
+                prev_thumb = os.path.splitext(prev_thumb)[0] + ".jpg"
+            prev_thumb_path = os.path.join("uploads", prev_thumb)
+            if os.path.exists(prev_thumb_path):
+                os.remove(prev_thumb_path)
         raise
     finally:
         conn.close()

@@ -335,8 +335,14 @@
                         })
                     });
 
+                    const skippedInvalid = parseInt(res.headers.get('X-Skipped-Invalid') || '0', 10);
+                    const skippedNoGps = parseInt(res.headers.get('X-Skipped-No-Gps') || '0', 10);
                     const skipped = parseInt(res.headers.get('X-Skipped-Count') || '0', 10);
-                    if (skipped > 0) {
+                    if (skippedInvalid > 0 && skippedNoGps > 0) {
+                        showToast(`${skippedInvalid} invalid and ${skippedNoGps} no-GPS submissions skipped`);
+                    } else if (skippedNoGps > 0) {
+                        showToast(`${skippedNoGps} submission(s) without GPS skipped`);
+                    } else if (skipped > 0) {
                         showToast(`${skipped} invalid submissions skipped`);
                     }
 

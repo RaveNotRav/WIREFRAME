@@ -504,5 +504,172 @@ def test_gps_upload_single_and_batch_storage_and_validation(client_unauth, monke
     assert res_bad_batch.status_code == 422
 
 
+def test_logout_revokes_server_session_in_db(_init_settings):
+    from fastapi.testclient import TestClient
+    from main import app
+    from backend.auth import hash_password
+
+    h, s = hash_password("LogoutTest123!")
+    _init_settings.execute(
+        "INSERT INTO users (username, password_hash, salt, role, active) VALUES (?, ?, ?, 'admin', 1)",
+        ("logout_test_user", h, s),
+    )
+    _init_settings.commit()
+
+    client = TestClient(app)
+    csrf_headers = {"X-Requested-With": "XMLHttpRequest"}
+    login_res = client.post(
+        "/api/auth/login",
+        json={"username": "logout_test_user", "password": "LogoutTest123!"},
+        headers=csrf_headers,
+    )
+    assert login_res.status_code == 200
+    session_token = client.cookies.get("session")
+    assert session_token
+
+    me_before = client.get("/api/auth/me")
+    assert me_before.status_code == 200
+
+    logout_res = client.post("/api/auth/logout", headers=csrf_headers)
+    assert logout_res.status_code == 200
+
+    # Replaying the captured session cookie after logout must be rejected (401)
+    replay_client = TestClient(app, cookies={"session": session_token})
+    me_after = replay_client.get("/api/auth/me")
+    assert me_after.status_code == 401
+
+
+def test_batch_upload_persists_notes_and_cleans_up_partial_files_on_failure(client_unauth, monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    from backend.database import get_connection
+    import backend.routes.batches as batches_route
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(batches_route, "enqueue_batch", lambda *args, **kwargs: None)
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color=(80, 120, 160)).save(buf, format="PNG")
+    valid_png = buf.getvalue()
+    csrf_headers = {"X-Requested-With": "XMLHttpRequest"}
+
+    # 1. Batch upload with notes stores notes on each created analysis row
+    res_ok = client_unauth.post(
+        "/api/batches",
+        data={
+            "company": "Meralco",
+            "barangay": "San Antonio",
+            "street": "Pearl Drive",
+            "notes": "Batch inspection note #42",
+        },
+        files=[
+            ("files", ("batch_note_1.png", valid_png, "image/png")),
+            ("files", ("batch_note_2.png", valid_png, "image/png")),
+        ],
+        headers=csrf_headers,
+    )
+    assert res_ok.status_code == 200, res_ok.text
+    batch_id = res_ok.json()["batch_id"]
+
+    conn = get_connection()
+    rows = conn.execute("SELECT notes FROM analyses WHERE batch_id = ?", (batch_id,)).fetchall()
+    conn.close()
+    assert len(rows) == 2
+    assert all(r["notes"] == "Batch inspection note #42" for r in rows)
+
+    # 2. If second file in batch fails validation, first file + thumbnail are cleaned up
+    uploads_dir = tmp_path / "uploads"
+    before_files = set(uploads_dir.iterdir()) if uploads_dir.exists() else set()
+
+    res_fail = client_unauth.post(
+        "/api/batches",
+        data={
+            "company": "Meralco",
+            "barangay": "San Antonio",
+            "street": "Pearl Drive",
+        },
+        files=[
+            ("files", ("good_first.png", valid_png, "image/png")),
+            ("files", ("corrupt_second.png", b"not-an-image", "image/png")),
+        ],
+        headers=csrf_headers,
+    )
+    assert res_fail.status_code == 400
+    after_files = set(uploads_dir.iterdir()) if uploads_dir.exists() else set()
+    assert after_files == before_files
+
+
+def test_calibrate_uses_analysis_band_and_clearance_status(client_admin, _init_settings):
+    import json
+    from backend.utils.clearance_helpers import determine_overall_safety
+
+    # 1. Pure helper check: High analysis_band escalates Safe wire to Unsafe
+    safety = determine_overall_safety(
+        ["Safe"],
+        max_wire_band="Low",
+        analysis_band="High",
+        clearance_status="above",
+    )
+    assert safety == "Unsafe"
+
+    # 2. Calibrate endpoint respects analysis.risk_score band (High risk_score -> at least Unsafe)
+    cur = _init_settings.execute(
+        """INSERT INTO analyses (
+            filename, status, company, barangay, street, is_public, is_mock,
+            width, height, pole_bbox_json, assumed_pole_height_m,
+            risk_score, max_crs, clearance_available, clearance_ok
+        ) VALUES (?, 'complete', 'Meralco', 'Brgy 1', 'Main St', 0, 1, 800, 600, ?, 10.0, 72.0, 20.0, 7.5, 1)""",
+        ("calib_parity.jpg", json.dumps([100, 100, 150, 550])),
+    )
+    aid = cur.lastrowid
+    _init_settings.execute(
+        """INSERT INTO wires (
+            analysis_id, class_name, confidence, sag_px, span_px, crs, band,
+            clearance_m, clearance_status, safety_level, centerline_json, params_json
+        ) VALUES (?, 'communication_cable', 0.9, 5.0, 200.0, 20.0, 'Low', 7.5, 'ok', 'Safe', ?, '{}')""",
+        (aid, json.dumps([[100, 200], [300, 200]])),
+    )
+    _init_settings.commit()
+
+    res_cal = client_admin.post(
+        f"/api/analysis/{aid}/calibrate",
+        json={"points": [{"x": 100, "y": 100}, {"x": 100, "y": 550}], "real_length_m": 9.0},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert res_cal.status_code == 200, res_cal.text
+    assert res_cal.json()["safety_level"] == "Unsafe"
+
+
+def test_geojson_export_skips_and_counts_no_gps_records(client_admin, _init_settings):
+    cur1 = _init_settings.execute(
+        """INSERT INTO analyses (filename, status, company, barangay, street, is_public, is_mock, gps_lat, gps_lng)
+           VALUES ('with_gps.jpg', 'complete', 'Meralco', 'B1', 'S1', 0, 0, 14.55, 121.02)"""
+    )
+    id_with_gps = cur1.lastrowid
+
+    cur2 = _init_settings.execute(
+        """INSERT INTO analyses (filename, status, company, barangay, street, is_public, is_mock, gps_lat, gps_lng)
+           VALUES ('no_gps.jpg', 'complete', 'Meralco', 'B1', 'S1', 0, 0, NULL, NULL)"""
+    )
+    id_no_gps = cur2.lastrowid
+    _init_settings.commit()
+
+    res = client_admin.post(
+        "/api/reports/geojson",
+        json={"analysis_ids": [id_with_gps, id_no_gps], "include_mock": False, "include_invalid": False},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert len(body["features"]) == 1
+    assert body["features"][0]["properties"]["id"] == id_with_gps
+    assert body["skipped_no_gps"] == 1
+    assert body["skipped_invalid"] == 0
+    assert res.headers.get("X-Skipped-No-Gps") == "1"
+    assert res.headers.get("X-Skipped-Invalid") == "0"
+    assert res.headers.get("X-Skipped-Count") == "1"
+
+
+
 
 
