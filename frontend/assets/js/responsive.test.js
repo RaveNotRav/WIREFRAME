@@ -160,6 +160,47 @@ describe('Mobile Responsiveness CSS & HTML Breakpoints', () => {
         assert.doesNotMatch(loginHtml, /id="desktop-notice"[^>]*style="[^"]*position:\s*fixed/i, 'login notice must not use position: fixed');
     });
 
+    it('#13: analyze.html #mock-watermark uses normal flow (not fixed/absolute) and is right-aligned on desktop and mobile (<768px)', () => {
+        const analyzeHtml = fs.readFileSync(path.join(pagesDir, 'analyze.html'), 'utf8');
+
+        // Inline style on #mock-watermark must not be position: fixed or position: absolute
+        const watermarkTagMatch = analyzeHtml.match(/<div[^>]*id="mock-watermark"[^>]*>/i);
+        assert.ok(watermarkTagMatch, 'analyze.html must contain #mock-watermark');
+        assert.doesNotMatch(
+            watermarkTagMatch[0],
+            /position\s*:\s*(fixed|absolute)/i,
+            '#mock-watermark inline style must not use position: fixed or absolute'
+        );
+
+        // Desktop rule must keep #mock-watermark in normal flow (static) and right-aligned
+        const desktopWatermarkMatch = analyzeHtml.match(/#mock-watermark,\s*\.mock-watermark\s*\{([^}]*)\}/i);
+        assert.ok(desktopWatermarkMatch, 'analyze.html must define desktop #mock-watermark rule');
+        assert.match(desktopWatermarkMatch[1], /position\s*:\s*static/i, 'Desktop #mock-watermark must use position: static');
+        assert.match(
+            desktopWatermarkMatch[1],
+            /margin-left\s*:\s*auto|margin\s*:\s*0\s+0\s+\d+px\s+auto/i,
+            'Desktop #mock-watermark must be right-aligned with margin-left: auto'
+        );
+        assert.match(
+            analyzeHtml,
+            /\.mock-watermark-row\s*\{[^}]*justify-content\s*:\s*flex-end/i,
+            'Desktop .mock-watermark-row must right-align with justify-content: flex-end'
+        );
+
+        // Mobile breakpoint (<768px) must keep #mock-watermark in normal flow (static) and right-aligned, never fixed/absolute
+        const mobileBlockMatch = analyzeHtml.match(/@media\s*\(\s*max-width\s*:\s*767px\s*\)\s*\{([\s\S]*?)\n\s*\}\s*<\/style>/i);
+        assert.ok(mobileBlockMatch, 'analyze.html must have @media (max-width: 767px) block');
+        const mobileWatermarkMatch = mobileBlockMatch[1].match(/#mock-watermark[\s\S]*?\{([^}]*)\}/i);
+        assert.ok(mobileWatermarkMatch, 'Mobile breakpoint must style #mock-watermark');
+        assert.match(mobileWatermarkMatch[1], /position\s*:\s*static/i, 'Mobile #mock-watermark must use position: static');
+        assert.doesNotMatch(mobileWatermarkMatch[1], /position\s*:\s*(fixed|absolute)/i, 'Mobile #mock-watermark must not be fixed or absolute');
+        assert.match(
+            mobileWatermarkMatch[1],
+            /margin-left\s*:\s*auto|margin\s*:\s*0\s+0\s+\d+px\s+auto/i,
+            'Mobile #mock-watermark must be right-aligned with margin-left: auto'
+        );
+    });
+
     it('admin pages (login, dashboard, history) contain desktop-only notice markup and dismiss', () => {
         for (const page of ['login.html', 'dashboard.html', 'history.html']) {
             const html = fs.readFileSync(path.join(pagesDir, page), 'utf8');
@@ -198,5 +239,23 @@ describe('Mobile Responsiveness CSS & HTML Breakpoints', () => {
             /(#nav-login|#theme-toggle):hover[^{]*\{[^}]*var\(--color-accent-gradient-hover\)/i,
             'Landing header buttons must have a hover rule with var(--color-accent-gradient-hover)'
         );
+    });
+
+    it('analyze.html #analysis-metadata info box uses box-sizing: border-box, width <= 100%, and overflow-wrap: anywhere', () => {
+        const analyzeHtml = fs.readFileSync(path.join(pagesDir, 'analyze.html'), 'utf8');
+
+        // CSS rule on #analysis-metadata includes box-sizing: border-box, width: 100%, max-width: 100%, overflow-wrap: anywhere
+        const metaRuleMatch = analyzeHtml.match(/#analysis-metadata\s*\{([^}]*)\}/i);
+        assert.ok(metaRuleMatch, 'analyze.html must define #analysis-metadata CSS rule');
+        assert.match(metaRuleMatch[1], /box-sizing\s*:\s*border-box/i, '#analysis-metadata must use box-sizing: border-box');
+        assert.match(metaRuleMatch[1], /width\s*:\s*100%/i, '#analysis-metadata must set width: 100%');
+        assert.match(metaRuleMatch[1], /max-width\s*:\s*100%/i, '#analysis-metadata must set max-width: 100%');
+        assert.match(metaRuleMatch[1], /overflow-wrap\s*:\s*anywhere/i, '#analysis-metadata must set overflow-wrap: anywhere');
+
+        // Inline style on #analysis-metadata also includes box-sizing: border-box and width: 100%
+        const metaTagMatch = analyzeHtml.match(/<div[^>]*id="analysis-metadata"[^>]*>/i);
+        assert.ok(metaTagMatch, 'analyze.html must contain #analysis-metadata element');
+        assert.match(metaTagMatch[0], /box-sizing\s*:\s*border-box/i, '#analysis-metadata inline style must include box-sizing: border-box');
+        assert.match(metaTagMatch[0], /width\s*:\s*100%/i, '#analysis-metadata inline style must include width: 100%');
     });
 });

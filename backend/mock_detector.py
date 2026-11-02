@@ -2,6 +2,7 @@
 
 import logging
 import os
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,9 +18,54 @@ MOCK_CLASS_NAMES: dict[int, str] = {
     4: "pole",
 }
 
+VALID_MOCK_SCENARIOS = ("random", "low", "moderate", "high", "critical", "cycle")
+_CYCLE_SCENARIOS = ("low", "moderate", "high", "critical")
+_cycle_lock = threading.Lock()
+_cycle_counter = 0
+
 
 def is_mock_mode() -> bool:
     return os.environ.get("WIREFRAME_MOCK", "0") == "1"
+
+
+def get_mock_scenario() -> str:
+    """Return effective mock scenario when WIREFRAME_MOCK=1, or 'random' if unset/invalid.
+
+    If WIREFRAME_MOCK is not '1', returns 'random' without consuming or warning on env var.
+    """
+    if not is_mock_mode():
+        return "random"
+    raw = os.environ.get("WIREFRAME_MOCK_SCENARIO", "")
+    if not raw or not raw.strip():
+        return "random"
+    val = raw.strip().lower()
+    if val not in VALID_MOCK_SCENARIOS:
+        logger.warning(
+            "Invalid WIREFRAME_MOCK_SCENARIO=%r; falling back to 'random' (valid: %s)",
+            raw,
+            ", ".join(VALID_MOCK_SCENARIOS),
+        )
+        return "random"
+    return val
+
+
+def resolve_active_mock_scenario() -> str:
+    """Resolve the active scenario for a single mock run, advancing the cycle counter when 'cycle'."""
+    scenario = get_mock_scenario()
+    if scenario == "cycle":
+        global _cycle_counter
+        with _cycle_lock:
+            active = _CYCLE_SCENARIOS[_cycle_counter % len(_CYCLE_SCENARIOS)]
+            _cycle_counter += 1
+        return active
+    return scenario
+
+
+def reset_mock_cycle() -> None:
+    """Reset the process-local cycle counter (used by tests)."""
+    global _cycle_counter
+    with _cycle_lock:
+        _cycle_counter = 0
 
 
 @dataclass

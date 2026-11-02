@@ -33,7 +33,7 @@ from backend.auth import (
 from backend.database import get_connection
 from backend.services.sites import get_or_create_site, validate_location, validate_gps_coordinates
 from backend.services.worker import enqueue_batch
-from backend.utils.uploads import generate_safe_filename, is_safe_contained_path
+from backend.utils.uploads import extract_display_filename, generate_safe_filename, is_safe_contained_path
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
@@ -389,7 +389,14 @@ async def get_events(analysis_id: int, req: Request, user: User | None = Depends
         
     events = conn.execute("SELECT state, ts, detail FROM pipeline_events WHERE analysis_id = ? ORDER BY id ASC", (analysis_id,)).fetchall()
     conn.close()
-    return [dict(e) for e in events]
+    sanitized_events = []
+    for e in events:
+        d = dict(e)
+        detail = d.get("detail")
+        if isinstance(detail, str) and detail.startswith("Loaded "):
+            d["detail"] = f"Loaded {extract_display_filename(detail[7:])}"
+        sanitized_events.append(d)
+    return sanitized_events
 
 
 @router.get("/{analysis_id}/wires")
@@ -598,7 +605,13 @@ async def calibrate_analysis(
             if rollup["clearance_available"] < 0.0 or rollup["clearance_available"] > max_allowed_clearance:
                 raise HTTPException(status_code=422, detail="Calibration resulted in implausible clearance")
 
-        overall_safety = determine_overall_safety([ew["safety_level"] for ew in evaluated_wires])
+        max_wire_crs_val = max((ew.get("crs") or 0.0 for ew in evaluated_wires), default=0.0)
+        from backend.formulas import compute_crs_band
+        max_wire_band = compute_crs_band(float(max_wire_crs_val))
+        overall_safety = determine_overall_safety(
+            [ew["safety_level"] for ew in evaluated_wires],
+            max_wire_band=max_wire_band if max_wire_band != "unavailable" else None,
+        )
 
         # Audit payload with previous values
         previous_state = {

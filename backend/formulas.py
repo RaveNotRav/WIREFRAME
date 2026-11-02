@@ -93,7 +93,7 @@ def compute_crs_band(crs_raw: float) -> str:
     if crs_raw is None or crs_raw < 0:
         return "unavailable"
         
-    val = round(crs_raw, 2) / 100.0
+    val = float(crs_raw) / 100.0
     val = max(0.0, min(1.0, val))
     
     bands = get_setting("risk_bands")

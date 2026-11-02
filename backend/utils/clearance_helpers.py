@@ -186,21 +186,70 @@ def rollup_analysis_clearance(
     }
 
 
-def determine_overall_safety(wire_safeties: list[str]) -> str:
+def determine_overall_safety(
+    wire_safeties: list[str],
+    max_wire_band: str | None = None,
+    analysis_band: str | None = None,
+    clearance_status: str | None = None,
+) -> str:
     """Worst-of overall safety level determination.
 
-    Severity order: Critical > Unsafe > Caution.
-    "Safe" is returned only when every wire is exactly "Safe".
-    An empty list or any unrecognized value returns "Unknown".
+    Severity order: Critical > Unsafe > Caution > Safe.
+    Applies a wire-based floor from max_wire_band (Critical -> Critical, High -> at least Unsafe)
+    and optionally combines clearance_status x analysis_band when provided.
+    "Safe" is returned only when every wire is "Safe" and no escalation applies.
     """
-    if not wire_safeties:
-        return "Unknown"
-    if "Critical" in wire_safeties:
-        return "Critical"
-    if "Unsafe" in wire_safeties:
-        return "Unsafe"
-    if "Caution" in wire_safeties:
-        return "Caution"
-    if all(s == "Safe" for s in wire_safeties):
-        return "Safe"
-    return "Unknown"
+    base = "Unknown"
+    if wire_safeties:
+        if "Critical" in wire_safeties:
+            base = "Critical"
+        elif "Unsafe" in wire_safeties:
+            base = "Unsafe"
+        elif "Caution" in wire_safeties:
+            base = "Caution"
+        elif all(s == "Safe" for s in wire_safeties):
+            base = "Safe"
+
+    rank_map = {"Unknown": 0, "Incomplete": 0, "Safe": 1, "Caution": 2, "Unsafe": 3, "Critical": 4}
+    inv_map = {1: "Safe", 2: "Caution", 3: "Unsafe", 4: "Critical"}
+
+    current_rank = rank_map.get(base, 0)
+
+    # Optional clearance x analysis_band matrix evaluation
+    if clearance_status or analysis_band:
+        clr_rank = 0
+        if clearance_status in ("below", 0):
+            clr_rank = 4
+        elif clearance_status in ("near", "marginal", 2):
+            clr_rank = 2
+        elif clearance_status in ("above", "ok", 1):
+            clr_rank = 1
+
+        band_rank = 0
+        if analysis_band == "Critical":
+            band_rank = 4
+        elif analysis_band == "High":
+            band_rank = 3
+        elif analysis_band == "Moderate":
+            band_rank = 2
+        elif analysis_band == "Low":
+            band_rank = 1
+
+        if clearance_status in ("no_pole", "no_wires"):
+            matrix_rank = band_rank if band_rank >= 3 else 0
+        elif clearance_status in ("unavailable", None) and not wire_safeties:
+            matrix_rank = band_rank if band_rank >= 2 else 0
+        else:
+            matrix_rank = max(clr_rank, band_rank)
+
+        current_rank = max(current_rank, matrix_rank)
+
+    # Wire-based floor from max_wire_band: Critical -> Critical (4); High -> at least Unsafe (3)
+    if max_wire_band == "Critical":
+        current_rank = max(current_rank, 4)
+    elif max_wire_band == "High":
+        current_rank = max(current_rank, 3)
+
+    if current_rank >= 1:
+        return inv_map[current_rank]
+    return base

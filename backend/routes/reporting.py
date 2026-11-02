@@ -68,7 +68,41 @@ def _get_analysis_data(conn, analysis_id: int):
     if data['status'] == 'complete':
         from backend.utils.clearance_helpers import determine_overall_safety
         w_safeties = [w['safety_level'] for w in data['wires']]
-        safety_level = determine_overall_safety(w_safeties)
+        w_safeties = [w['safety_level'] for w in data['wires']]
+        from backend.formulas import compute_crs_band
+        analysis_band = compute_crs_band(float(data['risk_score'])) if data.get('risk_score') is not None else None
+        max_wire_crs_val = data.get('max_crs')
+        if max_wire_crs_val is None:
+            wire_crs_list = [float(w['crs']) for w in data['wires'] if w.get('crs') is not None]
+            if wire_crs_list:
+                max_wire_crs_val = max(wire_crs_list)
+        max_wire_band = compute_crs_band(float(max_wire_crs_val)) if max_wire_crs_val is not None else None
+        if not max_wire_band or max_wire_band == 'unavailable':
+            wire_bands = [w.get('band') for w in data['wires'] if w.get('band')]
+            if 'Critical' in wire_bands:
+                max_wire_band = 'Critical'
+            elif 'High' in wire_bands:
+                max_wire_band = 'High'
+        clr_ok = data.get('clearance_ok')
+        if clr_ok == 1:
+            clr_status = 'above'
+        elif clr_ok == 2:
+            clr_status = 'near'
+        elif clr_ok == 0:
+            clr_status = 'below'
+        elif data.get('clearance_available') is None:
+            clr_status = 'no_pole'
+        else:
+            clr_status = 'unavailable'
+        safety_level = determine_overall_safety(
+            w_safeties,
+            max_wire_band=max_wire_band if max_wire_band != 'unavailable' else None,
+            analysis_band=analysis_band if analysis_band != 'unavailable' else None,
+            clearance_status=clr_status,
+        )
+        data['_analysis_band'] = analysis_band
+        data['_max_wire_band'] = max_wire_band
+        data['_max_wire_crs'] = max_wire_crs_val
             
     if data['status'] == 'no_wires':
         safety_level = 'No Wires Detected'
@@ -85,8 +119,16 @@ def _get_analysis_data(conn, analysis_id: int):
     reasons = []
     if data['status'] == 'no_wires':
         reasons.append("No wires detected in the image.")
-    elif safety_level == 'Critical':
-        reasons.append("One or more wires have critical clearance issues.")
+    elif data['status'] == 'complete':
+        if data.get('risk_score') is not None and data.get('_analysis_band') and data.get('_analysis_band') != 'unavailable':
+            reasons.append(f"Risk score {float(data['risk_score']):.1f} ({data['_analysis_band']})")
+        if data.get('_max_wire_band') in ('Critical', 'High'):
+            if data.get('_max_wire_crs') is not None:
+                reasons.append(f"Highest wire risk is {data['_max_wire_band']} ({float(data['_max_wire_crs']):.1f})")
+            else:
+                reasons.append(f"Highest wire risk is {data['_max_wire_band']}")
+        if safety_level == 'Critical':
+            reasons.append("One or more wires have critical clearance issues.")
     
     data['reasons'] = reasons
     
@@ -324,6 +366,7 @@ def export_geojson(
                 "barangay": data.get("barangay"),
                 "street": data.get("street"),
                 "status": data.get("status"),
+                "safety_level": data.get("safety_level"),
                 "verdict": data.get("status"), # Mock verdict
                 "crs": data.get("max_crs"),
                 "ground_clearance_m": ground_clearance_m,
@@ -411,6 +454,7 @@ def export_csv(
                 "street": sanitize_csv_cell(data.get("street")),
                 "notes": sanitize_csv_cell(data.get("notes")),
                 "status": data.get("status"),
+                "safety_level": data.get("safety_level"),
                 "verdict": data.get("status"), # Mock verdict
                 "crs": data.get("max_crs"),
                 "ground_clearance_m": ground_clearance_m,

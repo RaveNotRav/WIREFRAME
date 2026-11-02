@@ -31,6 +31,8 @@ from backend.utils.clearance_helpers import (
     rollup_analysis_clearance,
 )
 
+from backend.utils.uploads import extract_display_filename
+
 logger = logging.getLogger(__name__)
 
 WIRE_CLASSES = {"power_line", "telecom_cable", "fiber_optic", "dead_abandoned"}
@@ -104,7 +106,8 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         conn.execute("UPDATE analyses SET status = 'processing' WHERE id = ?", (analysis_id,))
         conn.commit()
         
-        transition_state(conn, analysis_id, PipelineState.IMAGE_ACQUIRED, f"Loaded {image_path}")
+        display_name = extract_display_filename(image_path)
+        transition_state(conn, analysis_id, PipelineState.IMAGE_ACQUIRED, f"Loaded {display_name}")
         
         if check_cancel_requested(conn, batch_id):
             raise InterruptedError("Cancelled during ImageAcquired")

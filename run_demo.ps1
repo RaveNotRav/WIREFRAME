@@ -2,8 +2,28 @@ param(
     [switch]$Clean,
     [switch]$SeedAdmin,
     [switch]$Public,
-    [string]$PublicOrigin
+    [string]$PublicOrigin,
+    [string]$MockScenario
 )
+
+$validMockScenarios = @("random", "low", "moderate", "high", "critical", "cycle")
+if ($PSBoundParameters.ContainsKey("MockScenario") -or $MockScenario) {
+    $normalizedScenario = $MockScenario.Trim().ToLower()
+    if ($validMockScenarios -notcontains $normalizedScenario) {
+        Write-Host "ERROR: Invalid -MockScenario '$MockScenario'. Allowed values: $($validMockScenarios -join ', ')" -ForegroundColor Red
+        exit 1
+    }
+    $env:WIREFRAME_MOCK_SCENARIO = $normalizedScenario
+} elseif (-not $env:WIREFRAME_MOCK_SCENARIO) {
+    $env:WIREFRAME_MOCK_SCENARIO = "random"
+} else {
+    $normalizedScenario = $env:WIREFRAME_MOCK_SCENARIO.Trim().ToLower()
+    if ($validMockScenarios -notcontains $normalizedScenario) {
+        Write-Host "ERROR: Invalid WIREFRAME_MOCK_SCENARIO '$($env:WIREFRAME_MOCK_SCENARIO)'. Allowed values: $($validMockScenarios -join ', ')" -ForegroundColor Red
+        exit 1
+    }
+    $env:WIREFRAME_MOCK_SCENARIO = $normalizedScenario
+}
 
 if ($Public) {
     if (-not $PublicOrigin -or -not ($PublicOrigin -like "https://*")) {
@@ -102,6 +122,7 @@ with open('passwords_demo_admin.txt', 'w', encoding='utf-8') as f:
 $hostToBind = if ($env:WIREFRAME_HOST) { $env:WIREFRAME_HOST } else { "127.0.0.1" }
 
 Write-Host "Starting WIREFRAME in DEMO MOCK mode..." -ForegroundColor Green
+Write-Host "Mock scenario: $($env:WIREFRAME_MOCK_SCENARIO)" -ForegroundColor Cyan
 Write-Host "Backend API: http://${hostToBind}:8000" -ForegroundColor Cyan
 Write-Host "Frontend: http://${hostToBind}:8000/analyze.html" -ForegroundColor Cyan
 

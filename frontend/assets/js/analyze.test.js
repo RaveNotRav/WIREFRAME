@@ -101,6 +101,8 @@ describe('Analyze Upload Queue Reset & Retry Tests', () => {
             ...props
         });
 
+        let testIndex = 0;
+
         beforeEach(async () => {
             revokedUrls = [];
             mockElements = {
@@ -286,6 +288,255 @@ describe('Analyze Upload Queue Reset & Retry Tests', () => {
             assert.strictEqual(items[0].thumb, '/api/analysis/305/original', 'Thumb must use server endpoint, not revoked blob URL');
             assert.strictEqual(analyzeModule.getCurrentBatchId(), 99, 'currentBatchId must be set from data.batch_id');
         });
+
+        it('#11: rejected result (no wires, no site) renders REJECTED badge and friendly message without throwing', () => {
+            const rejectedResult = {
+                id: 42,
+                status: 'rejected',
+                summary: 'too_blurry'
+            };
+            const rejectedEvents = [
+                { state: 'Initializing', detail: 'Starting analysis' },
+                { state: 'ImageAcquired', detail: 'Loaded blurry.jpg' },
+                { state: 'ImageRejected', detail: 'too_blurry' },
+                { state: 'Idle', detail: 'Pipeline finished (rejected)' }
+            ];
+
+            assert.doesNotThrow(() => {
+                analyzeModule.renderTerminalAnalysisState(rejectedResult, rejectedEvents);
+            });
+
+            assert.match(mockElements['status-badge'].innerHTML, /Rejected/i, 'Badge must stay Rejected');
+            assert.doesNotMatch(mockElements['status-badge'].innerHTML, /Error/i, 'Badge must not flip to Error');
+            assert.strictEqual(
+                mockElements['status-reason'].textContent,
+                'The photo is too blurry. Hold the camera steady and tap to focus on the wires.',
+                'Friendly rejection reason must be shown'
+            );
+        });
+
+        it('#11: startAnalysis does not throw Cannot read properties of undefined (reading "name") if currentFiles cleared mid-flight', async () => {
+            analyzeModule.setCurrentFiles([{ name: 'blurry_phone.jpg' }]);
+            analyzeModule.setFileThumbURLs(['blob:http://localhost/blurry_phone.jpg']);
+
+            globalThis.fetch = async (url) => {
+                if (url.includes('/api/analysis/upload')) {
+                    // Simulate currentFiles being cleared or mutated while upload is in-flight
+                    analyzeModule.clearUploadQueue();
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ analysis_id: 404, batch_id: 12 })
+                    };
+                }
+                if (url.includes('/events')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ([
+                            { state: 'ImageRejected', detail: 'too_blurry' },
+                            { state: 'Idle', detail: 'Pipeline finished (rejected)' }
+                        ])
+                    };
+                }
+                if (url.includes('/result')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ id: 404, status: 'rejected', summary: 'too_blurry' })
+                    };
+                }
+                return { ok: true, status: 200, json: async () => ({ status: 'complete' }) };
+            };
+
+            await analyzeModule.startAnalysis();
+
+            assert.doesNotMatch(
+                mockElements['status-reason'].textContent,
+                /Cannot read properties of undefined/i,
+                'status-reason must never show TypeError message'
+            );
+            assert.strictEqual(analyzeModule.getBatchItems()[0].name, 'blurry_phone.jpg');
+        });
+
+        it('GPS fix persists across clearUploadQueue() until successful submit, and is sent in both single and batch FormData', async () => {
+            // 1. Simulate browser geolocation fix
+            mockElements['input-lat'].value = '';
+            mockElements['input-lng'].value = '';
+            mockElements['gps-source-text'] = makeMockElement({ textContent: '' });
+            mockElements['btn-gps'] = makeMockElement({ disabled: false });
+
+            let capturedOptions = null;
+            Object.defineProperty(globalThis, 'navigator', {
+                value: {
+                    geolocation: {
+                        getCurrentPosition: (onSuccess, _onError, opts) => {
+                            capturedOptions = opts;
+                            onSuccess({ coords: { latitude: 14.6051796, longitude: 120.962724 } });
+                        }
+                    }
+                },
+                configurable: true,
+                writable: true
+            });
+
+            analyzeModule.requestGpsLocation();
+            assert.deepStrictEqual(capturedOptions, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+            assert.strictEqual(mockElements['input-lat'].value, '14.6051796');
+            assert.strictEqual(mockElements['input-lng'].value, '120.962724');
+            assert.strictEqual(analyzeModule.getLastGpsFix().lat, '14.6051796');
+            assert.strictEqual(analyzeModule.getLastGpsFix().lng, '120.962724');
+
+            // 2. Queue reset does NOT wipe GPS fix
+            analyzeModule.clearUploadQueue();
+            assert.strictEqual(analyzeModule.getLastGpsFix().lat, '14.6051796');
+            assert.strictEqual(analyzeModule.getLastGpsFix().lng, '120.962724');
+
+            // Even if DOM input value was cleared by mobile autofill/picker, lastGpsFix fallback supplies it
+            mockElements['input-lat'].value = '';
+            mockElements['input-lng'].value = '';
+
+            // 3. Single upload FormData includes gps_lat and gps_lng
+            let singleFormEntries = [];
+            analyzeModule.setCurrentFiles([{ name: 'single_gps.jpg' }]);
+            globalThis.fetch = async (url, opts) => {
+                if (url.includes('/api/analysis/upload')) {
+                    singleFormEntries = opts.body.entries;
+                    return { ok: true, status: 200, json: async () => ({ analysis_id: 501, batch_id: 51 }) };
+                }
+                return { ok: true, status: 200, json: async () => ({ status: 'complete' }) };
+            };
+            await analyzeModule.startAnalysis();
+            analyzeModule.stopAllPolling();
+            assert.ok(singleFormEntries.some(([k, v]) => k === 'gps_lat' && v === '14.6051796'), 'Single upload FormData must include gps_lat');
+            assert.ok(singleFormEntries.some(([k, v]) => k === 'gps_lng' && v === '120.962724'), 'Single upload FormData must include gps_lng');
+
+            // After successful submit, GPS state is cleared
+            assert.strictEqual(analyzeModule.getLastGpsFix().lat, '');
+
+            // 4. Batch upload FormData ALSO includes gps_lat and gps_lng
+            analyzeModule.setLastGpsFix('14.42', '120.94', 'Browser (Device)');
+            mockElements['input-lat'].value = '14.42';
+            mockElements['input-lng'].value = '120.94';
+            analyzeModule.setCurrentFiles([{ name: 'batch1.jpg' }, { name: 'batch2.jpg' }]);
+
+            let batchFormEntries = [];
+            globalThis.fetch = async (url, opts) => {
+                if (url.endsWith('/api/batches')) {
+                    batchFormEntries = opts.body.entries;
+                    return { ok: true, status: 200, json: async () => ({ batch_id: 77 }) };
+                }
+                if (url.includes('/api/batches/77')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ analyses: [{ id: 701, status: 'queued' }, { id: 702, status: 'queued' }] })
+                    };
+                }
+                return { ok: true, status: 200, json: async () => ({ status: 'complete' }) };
+            };
+            await analyzeModule.startAnalysis();
+            analyzeModule.stopAllPolling();
+            assert.ok(batchFormEntries.some(([k, v]) => k === 'gps_lat' && v === '14.42'), 'Batch upload FormData must include gps_lat');
+            assert.ok(batchFormEntries.some(([k, v]) => k === 'gps_lng' && v === '120.94'), 'Batch upload FormData must include gps_lng');
+        });
+
+        it('GPS error-code mapping (1, 2, 3), keeps previous good fix on error, and checks isSecureContext', () => {
+            assert.match(analyzeModule.formatGpsError({ code: 1 }), /Chrome or Safari/i);
+            assert.match(analyzeModule.formatGpsError({ code: 2 }), /Location/i);
+            assert.match(analyzeModule.formatGpsError({ code: 3 }), /timed out|try again/i);
+
+            // Keep previous good fix on error
+            analyzeModule.setLastGpsFix('14.6051796', '120.962724', 'Browser (Device)');
+            mockElements['input-lat'].value = '14.6051796';
+            mockElements['input-lng'].value = '120.962724';
+            mockElements['gps-source-text'] = makeMockElement({ textContent: 'Source: Browser (Device)' });
+
+            Object.defineProperty(globalThis, 'navigator', {
+                value: {
+                    geolocation: {
+                        getCurrentPosition: (_onSuccess, onError) => {
+                            onError({ code: 3 });
+                        }
+                    }
+                },
+                configurable: true,
+                writable: true
+            });
+            analyzeModule.requestGpsLocation();
+            assert.strictEqual(mockElements['input-lat'].value, '14.6051796', 'Previous lat fix must be preserved on error');
+            assert.strictEqual(mockElements['input-lng'].value, '120.962724', 'Previous lng fix must be preserved on error');
+            assert.strictEqual(analyzeModule.getLastGpsFix().lat, '14.6051796');
+
+            // Insecure context check
+            analyzeModule.clearGpsState();
+            globalThis.window = { isSecureContext: false };
+            analyzeModule.requestGpsLocation();
+            assert.match(mockElements['gps-source-text'].textContent, /secure|HTTPS/i);
+            delete globalThis.window;
+        });
+
+        it('In-app browser UA detection (FBAN, FBAV, FB_IAB, Messenger, Instagram, Line) and input attributes', () => {
+            assert.strictEqual(analyzeModule.isInAppBrowser('Mozilla/5.0 [FBAN/FBIOS;FBAV/400.0]'), true);
+            assert.strictEqual(analyzeModule.isInAppBrowser('Mozilla/5.0 [FB_IAB/FB4A]'), true);
+            assert.strictEqual(analyzeModule.isInAppBrowser('Mozilla/5.0 MessengerForiOS'), false);
+            assert.strictEqual(analyzeModule.isInAppBrowser('Mozilla/5.0 Messenger/100.0'), true);
+            assert.strictEqual(analyzeModule.isInAppBrowser('Mozilla/5.0 Instagram 300.0'), true);
+            assert.strictEqual(analyzeModule.isInAppBrowser('Mozilla/5.0 Line/13.0.0'), true);
+            assert.strictEqual(analyzeModule.isInAppBrowser('Mozilla/5.0 Chrome/120.0.0.0 Mobile Safari/537.36'), false);
+
+            const analyzeHtml = fs.readFileSync(path.resolve(process.cwd(), 'frontend/pages/analyze.html'), 'utf8');
+            const latTag = analyzeHtml.match(/<input[^>]*id="input-lat"[^>]*>/i)?.[0] || '';
+            const lngTag = analyzeHtml.match(/<input[^>]*id="input-lng"[^>]*>/i)?.[0] || '';
+            for (const tag of [latTag, lngTag]) {
+                assert.match(tag, /autocomplete="off"/i);
+                assert.match(tag, /inputmode="decimal"/i);
+                assert.match(tag, /spellcheck="false"/i);
+                assert.match(tag, /name="wf_coord_(lat|lng)"/i);
+            }
+            assert.match(analyzeHtml, /For GPS and uploads, open this page in Chrome or Safari \(⋯ → Open in browser\)\./);
+        });
+
+        it('updateTilesFromJson shows "Risk score 44.6 (Moderate)" under Overall Safety and labels per-wire risk separately', () => {
+            mockElements['safety-badge'] = makeMockElement();
+            mockElements['safety-risk-summary'] = makeMockElement();
+            mockElements['safety-reasons'] = makeMockElement();
+            mockElements['action-text'] = makeMockElement();
+            mockElements['crs-value'] = makeMockElement();
+            mockElements['crs-band'] = makeMockElement();
+            mockElements['wire-crs-summary'] = makeMockElement();
+            mockElements['crs-fill'] = makeMockElement();
+            mockElements['crs-gauge'] = makeMockElement();
+            mockElements['sag-value'] = makeMockElement();
+            mockElements['clearance-value'] = makeMockElement();
+            mockElements['vni-value'] = makeMockElement();
+            mockElements['vni-spectrum'] = makeMockElement();
+            mockElements['wire-list'] = makeMockElement();
+            mockElements['analysis-metadata'] = makeMockElement();
+
+            const analysis = {
+                id: 99,
+                status: 'complete',
+                risk_score: 44.6,
+                max_crs: 100.0,
+                crs: 0.446,
+                crs_band: 'Moderate',
+                ground_clearance_status: 'near',
+                sag_m: 1.25,
+                ground_clearance_m: 4.5,
+                vni: 0.65,
+                wires: [{ class_name: 'power_line', confidence: 0.92, crs: 100.0, sag_m: 1.25 }]
+            };
+
+            analyzeModule.updateTilesFromJson(analysis);
+
+            assert.match(mockElements['safety-badge'].innerHTML, /Critical/);
+            assert.strictEqual(mockElements['safety-risk-summary'].textContent, 'Risk score 44.6 (Moderate)');
+            assert.strictEqual(mockElements['crs-value'].textContent, 'Moderate Risk');
+            assert.strictEqual(mockElements['crs-band'].textContent, 'Moderate (44.6)');
+            assert.strictEqual(mockElements['wire-crs-summary'].textContent, 'Highest wire risk: Critical (100.0)');
+            assert.strictEqual(mockElements['crs-fill'].style.width, '44.6%');
+        });
     });
 
     describe('Demo Flow Batch A Fixes (#3, #6, #8)', () => {
@@ -345,6 +596,13 @@ describe('Analyze Upload Queue Reset & Retry Tests', () => {
                 /typeof\s+analysis\.vni\s*===\s*['"]number['"]\s*\?\s*analysis\.vni\.toFixed/,
                 'analysis.vni must check typeof === "number"'
             );
+        });
+
+        it('CRS tile tick labels in analyze.html are 0, 33, 66, 85, 100', () => {
+            const crsTileMatch = analyzeHtml.match(/id="tile-crs"[\s\S]*?<!-- Wire Sag & Clearance -->/);
+            assert.ok(crsTileMatch, 'analyze.html must contain #tile-crs section');
+            const tickMatches = [...crsTileMatch[0].matchAll(/<span>\s*([0-9.]+)\s*<\/span>/g)].map(m => m[1]);
+            assert.deepStrictEqual(tickMatches, ['0', '33', '66', '85', '100']);
         });
     });
 });

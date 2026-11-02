@@ -81,6 +81,18 @@ def generate_safe_filename(name: str) -> str:
     return f"{hex8}_{sanitized_stem}{norm_ext}"
 
 
+def extract_display_filename(path_or_name: str | Path | None) -> str:
+    """Return a clean display filename without any directory path or 8-hex UUID prefix."""
+    if not path_or_name:
+        return "image"
+    raw = str(path_or_name).replace("\\", "/")
+    base = raw.rsplit("/", 1)[-1].strip()
+    if not base:
+        return "image"
+    stripped = re.sub(r"^[0-9a-fA-F]{8}_(.+)$", r"\1", base)
+    return stripped or base
+
+
 def is_safe_contained_path(path_str: str | Path | None, allowed_dirs: tuple[str, ...] = ("uploads", "outputs")) -> bool:
     """Return True if path_str resolves strictly inside one of allowed_dirs."""
     if not path_str:

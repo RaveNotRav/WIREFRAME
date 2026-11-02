@@ -146,7 +146,12 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
         
     from backend.utils.clearance_helpers import determine_overall_safety
     wire_safeties = [w["safety_level"] for w in wires if "safety_level" in w]
-    image_safety_level = determine_overall_safety(wire_safeties)
+    from backend.formulas import compute_crs_band
+    max_wire_band = compute_crs_band(float(max_crs)) if wires else None
+    image_safety_level = determine_overall_safety(
+        wire_safeties,
+        max_wire_band=max_wire_band if max_wire_band != "unavailable" else None,
+    )
 
     # Calculate final scores
     detection_risk = compute_detection_risk(severities)

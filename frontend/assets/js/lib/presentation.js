@@ -1,3 +1,5 @@
+import { getRiskBand } from './formatters.js';
+
 export function formatRejectionReason(code) {
     if (!code) return '';
     const map = {
@@ -74,7 +76,45 @@ export function safetyPresentation(arg1, arg2, arg3) {
     }
 
     const clrStatus = analysis.ground_clearance_status || analysis.clearance_status || null;
-    const crsBand = analysis.crs_band || null;
+    const hasNumericRiskScore = typeof analysis.risk_score === 'number' && !Number.isNaN(analysis.risk_score);
+    const derivedBand = hasNumericRiskScore
+        ? (getRiskBand(analysis.risk_score)?.label || null)
+        : null;
+    const crsBand = derivedBand || analysis.crs_band || null;
+
+    // Resolve per-wire max CRS and band for wire-based floor escalation
+    let maxWireCrs = null;
+    if (typeof analysis.max_wire_crs === 'number' && !Number.isNaN(analysis.max_wire_crs)) {
+        maxWireCrs = analysis.max_wire_crs;
+    } else if (typeof analysis.max_crs === 'number' && !Number.isNaN(analysis.max_crs)) {
+        maxWireCrs = analysis.max_crs;
+    } else if (Array.isArray(analysis.wires) && analysis.wires.length > 0) {
+        const wireScores = analysis.wires
+            .map(w => (w && typeof w.crs === 'number' && !Number.isNaN(w.crs) ? w.crs : null))
+            .filter(v => v !== null);
+        if (wireScores.length > 0) {
+            maxWireCrs = Math.max(...wireScores);
+        }
+    }
+
+    let maxWireBand = analysis.max_wire_band || null;
+    if (!maxWireBand || maxWireBand === 'unavailable') {
+        if (maxWireCrs !== null) {
+            maxWireBand = getRiskBand(maxWireCrs)?.label || null;
+        } else if (Array.isArray(analysis.wires) && analysis.wires.length > 0) {
+            const bandRank = { Low: 1, Moderate: 2, High: 3, Critical: 4 };
+            let bestBand = null;
+            let bestRank = 0;
+            for (const w of analysis.wires) {
+                const wb = w?.band || w?.crs_band || (typeof w?.crs === 'number' ? getRiskBand(w.crs)?.label : null);
+                if (wb && (bandRank[wb] || 0) > bestRank) {
+                    bestRank = bandRank[wb];
+                    bestBand = wb;
+                }
+            }
+            maxWireBand = bestBand;
+        }
+    }
     let reasons = Array.isArray(analysis.safety_reasons) ? [...analysis.safety_reasons] : [];
     if (Array.isArray(analysis.reasons) && reasons.length === 0) {
         reasons = [...analysis.reasons];
@@ -104,10 +144,13 @@ export function safetyPresentation(arg1, arg2, arg3) {
         reasons.push('No wires were detected in this photo. Retake it with the overhead wires clearly in view.');
     }
 
-    // 2. Evaluate CRS band
+    // 2. Evaluate CRS band (from risk_score when present, else explicit crs_band)
     if (crsBand === 'Critical') {
         text = 'Critical';
         risk = 'critical';
+        if (hasNumericRiskScore) {
+            reasons.push(`Risk score ${analysis.risk_score.toFixed(1)} (Critical)`);
+        }
         reasons.push('CRS band is Critical');
         crsText = 'Critical Risk';
         crsColor = 'var(--risk-critical)';
@@ -115,6 +158,9 @@ export function safetyPresentation(arg1, arg2, arg3) {
         if (risk !== 'critical') {
             text = 'Unsafe';
             risk = 'high';
+        }
+        if (hasNumericRiskScore) {
+            reasons.push(`Risk score ${analysis.risk_score.toFixed(1)} (High)`);
         }
         reasons.push('CRS band is High');
         crsText = 'High Risk';
@@ -124,10 +170,16 @@ export function safetyPresentation(arg1, arg2, arg3) {
             text = 'Caution';
             risk = 'medium';
         }
+        if (hasNumericRiskScore) {
+            reasons.push(`Risk score ${analysis.risk_score.toFixed(1)} (Moderate)`);
+        }
         reasons.push('Moderate vegetation risk detected');
         crsText = 'Moderate Risk';
         crsColor = 'var(--risk-medium)';
     } else if (crsBand === 'Low') {
+        if (hasNumericRiskScore) {
+            reasons.push(`Risk score ${analysis.risk_score.toFixed(1)} (Low)`);
+        }
         crsText = 'Low Risk';
         crsColor = 'var(--risk-low)';
     } else {
@@ -178,6 +230,30 @@ export function safetyPresentation(arg1, arg2, arg3) {
         }
     }
 
+    // 4. Wire-based worst-case floor from maxWireBand:
+    // Critical wire -> Critical; High wire -> at least Unsafe; Moderate/Low -> no escalation.
+    if (maxWireBand === 'Critical') {
+        text = 'Critical';
+        risk = 'critical';
+        const wireReason = maxWireCrs !== null
+            ? `Highest wire risk is Critical (${maxWireCrs.toFixed(1)})`
+            : 'Highest wire risk is Critical';
+        if (!reasons.includes(wireReason)) {
+            reasons.push(wireReason);
+        }
+    } else if (maxWireBand === 'High') {
+        if (text !== 'Critical') {
+            text = 'Unsafe';
+            risk = 'high';
+        }
+        const wireReason = maxWireCrs !== null
+            ? `Highest wire risk is High (${maxWireCrs.toFixed(1)})`
+            : 'Highest wire risk is High';
+        if (!reasons.includes(wireReason)) {
+            reasons.push(wireReason);
+        }
+    }
+
     if (text === 'Unknown' && reasons.length === 0) {
         reasons.push('Unknown safety status');
     }
@@ -214,6 +290,8 @@ export function safetyPresentation(arg1, arg2, arg3) {
         icon: iconMap[text] || 'help',
         cssClass: cssSafetyMap[text] || 'badge-unknown',
         reasons,
+        crsBand,
+        maxWireBand,
         crsText,
         crsColor
     };

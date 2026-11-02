@@ -3,7 +3,7 @@
 import { fetchApi, showToast } from './main.js';
 import { initTheme, toggleTheme } from './lib/theme.js';
 import { getNaturalCoordinates } from './lib/coordinates.js';
-import { escapeHtml, formatConfidence, getWireClassColor } from './lib/formatters.js';
+import { escapeHtml, formatConfidence, getWireClassColor, getRiskBand } from './lib/formatters.js';
 import { statusPresentation, safetyPresentation, shouldShowPublicConfirmation, isTerminalStatus } from './lib/presentation.js';
 
 let currentUser = null;
@@ -16,6 +16,51 @@ let pollingTimers = {}; // id -> timer
 let actionMapping = {};
 let calPoints = []; // manual calibration points {x, y}
 let currentBatchId = null;
+let lastGpsFix = { lat: '', lng: '', source: '' };
+
+export const GPS_OPTIONS = {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 60000
+};
+
+export const IN_APP_BROWSER_MESSAGE = 'For GPS and uploads, open this page in Chrome or Safari (⋯ → Open in browser).';
+
+export function isInAppBrowser(ua = '') {
+    if (!ua || typeof ua !== 'string') return false;
+    return /\b(FBAN|FBAV|FB_IAB|Messenger|Instagram|Line)\b/i.test(ua);
+}
+
+export function formatGpsError(err) {
+    if (!err) return 'Could not get location. Please try again or enter coordinates manually.';
+    const code = err.code;
+    if (code === 1) {
+        return 'Location permission denied. Allow location access in browser settings or open this page in Chrome or Safari.';
+    }
+    if (code === 2) {
+        return 'Location unavailable. Please turn on device Location / GPS services and try again.';
+    }
+    if (code === 3) {
+        return 'Location request timed out. Move to an area with a clearer sky view and try again.';
+    }
+    return 'Could not get location. Please try again or enter coordinates manually.';
+}
+
+export function getLastGpsFix() {
+    return { ...lastGpsFix };
+}
+
+export function setLastGpsFix(lat, lng, source = 'Browser (Device)') {
+    lastGpsFix = {
+        lat: lat !== undefined && lat !== null ? String(lat).trim() : '',
+        lng: lng !== undefined && lng !== null ? String(lng).trim() : '',
+        source: source || ''
+    };
+}
+
+export function clearGpsState() {
+    lastGpsFix = { lat: '', lng: '', source: '' };
+}
 
 function updateCalibrationButtonVisibility() {
     const calBtn = document.getElementById('btn-calibrate');
@@ -38,6 +83,7 @@ if (typeof document !== 'undefined') {
         
         setupUploadHandlers();
         setupGPSHandlers();
+        setupInAppBrowserBanner();
         setupCalibrationTool();
         setupDecimalValidation();
         updateGlobalStepper('upload');
@@ -62,7 +108,7 @@ if (typeof document !== 'undefined') {
 }
 
 function setupDecimalValidation() {
-    const decimalInputs = document.querySelectorAll('input[type="number"][step="any"], #cal-x, #cal-y, #cal-length');
+    const decimalInputs = document.querySelectorAll('input[type="number"][step="any"], #input-lat, #input-lng, #cal-x, #cal-y, #cal-length');
     decimalInputs.forEach(input => {
         input.addEventListener('input', (e) => {
             // Remove any characters that are not digits, dot, or minus sign
@@ -222,11 +268,11 @@ function setupUploadHandlers() {
 function handleFiles(files) {
     const newFiles = Array.from(files).filter(f => {
         if (!ALLOWED_TYPES.includes(f.type)) {
-            showToast(`${f.name} is not a supported format (JPG/PNG only).`, 'error');
+            showToast(`${f?.name || 'File'} is not a supported format (JPG/PNG only).`, 'error');
             return false;
         }
         if (f.size > MAX_FILE_SIZE) {
-            showToast(`${f.name} exceeds the 10MB limit.`, 'error');
+            showToast(`${f?.name || 'File'} exceeds the 10MB limit.`, 'error');
             return false;
         }
         return true;
@@ -326,7 +372,94 @@ export function setFileThumbURLs(urls) {
 }
 
 // ---- GPS ----
-function setupGPSHandlers() {
+export function setupInAppBrowserBanner() {
+    const banner = document.getElementById('in-app-browser-banner');
+    if (!banner) return;
+    const ua = (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '';
+    if (isInAppBrowser(ua)) {
+        const textEl = document.getElementById('in-app-browser-text');
+        if (textEl) textEl.textContent = IN_APP_BROWSER_MESSAGE;
+        banner.style.display = 'flex';
+        const dismissBtn = document.getElementById('in-app-browser-dismiss');
+        if (dismissBtn) {
+            dismissBtn.onclick = () => {
+                banner.style.display = 'none';
+            };
+        }
+    } else {
+        banner.style.display = 'none';
+    }
+}
+
+export function requestGpsLocation() {
+    const sourceEl = document.getElementById('gps-source-text');
+    const latInput = document.getElementById('input-lat');
+    const lngInput = document.getElementById('input-lng');
+    const btnGps = document.getElementById('btn-gps');
+
+    const isSecure = (typeof window !== 'undefined' && 'isSecureContext' in window) ? window.isSecureContext : true;
+    if (!isSecure) {
+        const msg = 'Geolocation requires a secure HTTPS connection.';
+        showToast(msg, 'error');
+        if (sourceEl && !lastGpsFix.lat) sourceEl.textContent = msg;
+        return;
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+        const msg = 'Geolocation is not supported by your browser.';
+        showToast(msg, 'error');
+        if (sourceEl && !lastGpsFix.lat) sourceEl.textContent = msg;
+        return;
+    }
+
+    if (sourceEl) sourceEl.textContent = 'Getting location…';
+    if (btnGps) btnGps.disabled = true;
+
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            if (btnGps) btnGps.disabled = false;
+            const latVal = String(pos.coords.latitude);
+            const lngVal = String(pos.coords.longitude);
+            setLastGpsFix(latVal, lngVal, 'Browser (Device)');
+            if (latInput) latInput.value = latVal;
+            if (lngInput) lngInput.value = lngVal;
+            if (sourceEl) sourceEl.textContent = 'Source: Browser (Device)';
+            validateGPS(pos.coords.latitude, pos.coords.longitude);
+        },
+        (err) => {
+            if (btnGps) btnGps.disabled = false;
+            const msg = formatGpsError(err);
+            showToast(msg, 'error');
+            if (lastGpsFix.lat && lastGpsFix.lng) {
+                if (latInput && !latInput.value) latInput.value = lastGpsFix.lat;
+                if (lngInput && !lngInput.value) lngInput.value = lastGpsFix.lng;
+                if (sourceEl) sourceEl.textContent = `Source: ${lastGpsFix.source || 'Browser (Device)'} (kept previous fix; ${msg})`;
+            } else {
+                if (sourceEl) sourceEl.textContent = msg;
+            }
+        },
+        GPS_OPTIONS
+    );
+}
+
+export function setupGPSHandlers() {
+    const latInput = document.getElementById('input-lat');
+    const lngInput = document.getElementById('input-lng');
+    const syncManualGps = () => {
+        const latVal = latInput ? String(latInput.value || '').trim() : '';
+        const lngVal = lngInput ? String(lngInput.value || '').trim() : '';
+        if (latVal && lngVal) {
+            setLastGpsFix(latVal, lngVal, 'Manual');
+        } else if (!latVal && !lngVal) {
+            clearGpsState();
+        }
+    };
+    latInput?.addEventListener('input', syncManualGps);
+    lngInput?.addEventListener('input', syncManualGps);
+    document.getElementById('btn-gps')?.addEventListener('click', requestGpsLocation);
+}
+
+function legacySetupGPSHandlersUnused() {
     document.getElementById('btn-gps').addEventListener('click', () => {
         if (!navigator.geolocation) {
             showToast('Geolocation is not supported by your browser.', 'error');
@@ -371,11 +504,14 @@ export async function startAnalysis() {
         return;
     }
 
-    const lat = document.getElementById('input-lat').value;
-    const lng = document.getElementById('input-lng').value;
+    const rawLat = document.getElementById('input-lat')?.value;
+    const rawLng = document.getElementById('input-lng')?.value;
+    const lat = (rawLat !== undefined && rawLat !== null && String(rawLat).trim() !== '') ? String(rawLat).trim() : lastGpsFix.lat;
+    const lng = (rawLng !== undefined && rawLng !== null && String(rawLng).trim() !== '') ? String(rawLng).trim() : lastGpsFix.lng;
     
     if (lat && lng) validateGPS(parseFloat(lat), parseFloat(lng));
     
+    const filesSnapshot = currentFiles.slice();
     stopAllPolling();
     resetResultTiles();
     const reasonEl = document.getElementById('status-reason');
@@ -385,9 +521,11 @@ export async function startAnalysis() {
     if (tileBatch) tileBatch.style.display = 'block';
     
     try {
-        if (currentFiles.length === 1) {
+        if (filesSnapshot.length === 1) {
+            const firstFile = filesSnapshot[0];
+            const firstFileName = firstFile?.name || 'Image 1';
             const formData = new FormData();
-            formData.append('file', currentFiles[0]);
+            formData.append('file', firstFile);
             formData.append('company', company);
             formData.append('barangay', barangay);
             formData.append('street', street);
@@ -406,7 +544,7 @@ export async function startAnalysis() {
             if (typeof history !== 'undefined' && history.replaceState) {
                 history.replaceState(null, '', `?id=${data.analysis_id}`);
             }
-            batchItems = [{ id: data.analysis_id, status: 'queued', thumb: `/api/analysis/${data.analysis_id}/original`, name: currentFiles[0].name }];
+            batchItems = [{ id: data.analysis_id, status: 'queued', thumb: `/api/analysis/${data.analysis_id}/original`, name: firstFileName }];
             currentBatchId = data.batch_id || null;
             renderBatchTabs();
             switchTab(0);
@@ -415,12 +553,14 @@ export async function startAnalysis() {
             
         } else {
             const formData = new FormData();
-            currentFiles.forEach(f => formData.append('files', f));
+            filesSnapshot.forEach(f => formData.append('files', f));
             formData.append('company', company);
             formData.append('barangay', barangay);
             formData.append('street', street);
             if (notes) formData.append('notes', notes);
             
+            if (lat) formData.append('gps_lat', lat);
+            if (lng) formData.append('gps_lng', lng);
             const res = await fetchApi('/api/batches', {
                 method: 'POST',
                 body: formData,
@@ -448,7 +588,7 @@ export async function startAnalysis() {
                 id: a.id,
                 status: a.status,
                 thumb: `/api/analysis/${a.id}/original`,
-                name: currentFiles[i] ? currentFiles[i].name : `Item ${i+1}`
+                name: filesSnapshot[i]?.name || a?.filename || `Item ${i+1}`
             }));
             
             renderBatchTabs();
@@ -459,6 +599,7 @@ export async function startAnalysis() {
 
         // Reset upload queue, revoking object URLs and clearing input/previews
         clearUploadQueue();
+        clearGpsState();
     } catch (e) {
         console.error("Upload error:", e);
         showToast(e.message, 'error');
@@ -502,7 +643,7 @@ function renderBatchTabs() {
 
         btn.innerHTML = `
             ${thumbHtml}
-            <span style="flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.name)}</span>
+            <span style="flex:1; text-align:left; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item?.name || `Analysis #${item?.id ?? i + 1}`)}</span>
             <span style="width:10px; height:10px; border-radius:50%; background-color:${indicatorColor};" title="${escapeHtml(item.status)}"></span>
         `;
         
@@ -529,6 +670,7 @@ async function switchTab(index) {
     renderBatchTabs(); // update selected state
     
     const activeItem = batchItems[index];
+    if (!activeItem) return;
     
     // Clear UI before repopulating
     resetResultTiles();
@@ -720,10 +862,13 @@ async function pollItem(analysisId, errorCount) {
 
 function renderEvents(events) {
     const stepper = document.getElementById('stepper');
+    if (!stepper) return;
     stepper.innerHTML = '';
+    if (!Array.isArray(events)) return;
     const fragment = document.createDocumentFragment();
     
     events.forEach((ev, i) => {
+        if (!ev) return;
         const isLast = i === events.length - 1;
         const div = document.createElement('div');
         div.className = `neu-step ${isLast ? 'active' : 'completed'}`;
@@ -743,8 +888,10 @@ function renderEvents(events) {
 
 function updateStatusBadge(text, risk, reason) {
     const badge = document.getElementById('status-badge');
-    badge.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="5"/></svg> ${escapeHtml(text)}`;
-    badge.setAttribute('data-risk', risk);
+    if (badge) {
+        badge.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="5"/></svg> ${escapeHtml(text)}`;
+    }
+    if (badge) badge.setAttribute('data-risk', risk);
     
     const reasonEl = document.getElementById('status-reason');
     if (reasonEl) reasonEl.textContent = reason || '';
@@ -773,8 +920,42 @@ function resetResultTiles() {
     updateCalibrationButtonVisibility();
 }
 
-function populateResultTiles(analysis) {
-    if (analysis.status === 'rejected' || analysis.status === 'error') return;
+export function renderTerminalAnalysisState(analysis, events = null) {
+    if (!analysis || typeof analysis !== 'object') return;
+    if (Array.isArray(events)) {
+        renderEvents(events);
+    }
+    const pres = statusPresentation(analysis);
+    updateStatusBadge(pres.text, pres.risk, pres.reason);
+    updateCancelButton(analysis.status);
+
+    const pdfBtn = document.getElementById('btn-download-pdf');
+    if (pdfBtn) {
+        if (analysis.status === 'complete' || analysis.status === 'no_wires') {
+            pdfBtn.href = `/api/reports/${analysis.id}.pdf`;
+            pdfBtn.style.display = 'inline-block';
+        } else {
+            pdfBtn.style.display = 'none';
+        }
+    }
+
+    const watermark = document.getElementById('mock-watermark');
+    if (watermark) {
+        watermark.style.display = analysis.is_mock ? 'block' : 'none';
+    }
+
+    if (isTerminalStatus(analysis.status)) {
+        populateResultTiles(analysis);
+        if (analysis.status === 'complete' || analysis.status === 'no_wires') {
+            updateGlobalStepper('results');
+        }
+    } else {
+        updateGlobalStepper('processing');
+    }
+}
+
+export function populateResultTiles(analysis) {
+    if (!analysis || analysis.status === 'rejected' || analysis.status === 'error' || analysis.status === 'interrupted') return;
 
     currentAnalysis = analysis;
 
@@ -812,18 +993,31 @@ function populateResultTiles(analysis) {
     updateTilesFromJson(analysis);
 }
 
-function updateTilesFromJson(analysis) {
+export function updateTilesFromJson(analysis) {
     const pres = safetyPresentation(analysis);
 
     // Safety
     
     const safetyBadge = document.getElementById('safety-badge');
+    const hasRiskScore = typeof analysis.risk_score === 'number' && !Number.isNaN(analysis.risk_score);
+    const derivedBandObj = hasRiskScore ? getRiskBand(analysis.risk_score) : null;
+    const effectiveBand = derivedBandObj?.label || pres.crsBand || analysis.crs_band || 'unavailable';
+    const safetyRiskSummary = document.getElementById('safety-risk-summary');
+    if (safetyRiskSummary) {
+        if (hasRiskScore && derivedBandObj?.label) {
+            safetyRiskSummary.textContent = `Risk score ${analysis.risk_score.toFixed(1)} (${derivedBandObj.label})`;
+        } else if (effectiveBand && effectiveBand !== 'unavailable') {
+            safetyRiskSummary.textContent = `Risk band: ${effectiveBand}`;
+        } else {
+            safetyRiskSummary.textContent = 'Risk score unavailable';
+        }
+    }
     
     // Metadata
-    if (analysis.company || analysis.barangay || analysis.street || analysis.notes) {
+    if (analysis.company || analysis.barangay || analysis.street || analysis.notes || analysis.site?.name) {
         document.getElementById('analysis-metadata').style.display = 'block';
         document.getElementById('meta-company').textContent = analysis.company || '--';
-        document.getElementById('meta-location').textContent = (analysis.barangay || '--') + ' / ' + (analysis.street || '--');
+        document.getElementById('meta-location').textContent = analysis.site?.name || ((analysis.barangay || '--') + ' / ' + (analysis.street || '--'));
         if (analysis.notes) {
             document.getElementById('meta-notes-container').style.display = 'block';
             document.getElementById('meta-notes').textContent = analysis.notes;
@@ -851,9 +1045,9 @@ function updateTilesFromJson(analysis) {
     let actionText = actionMapping[pres.risk] || 'No action defined.';
     if (analysis.status === 'no_wires') {
         actionText = actionMapping['no_wires'] || 'No action needed.';
-    } else if (pres.risk === 'critical' && analysis.ground_clearance_status === 'below' && analysis.crs_band !== 'Critical') {
+    } else if (pres.risk === 'critical' && analysis.ground_clearance_status === 'below' && effectiveBand !== 'Critical' && pres.maxWireBand !== 'Critical') {
         actionText = 'Immediate dispatch required. Ground clearance below PEC minimum.';
-    } else if (pres.risk === 'high' && analysis.ground_clearance_status === 'near' && analysis.crs_band !== 'High' && analysis.crs_band !== 'Critical') {
+    } else if (pres.risk === 'high' && analysis.ground_clearance_status === 'near' && effectiveBand !== 'High' && effectiveBand !== 'Critical' && pres.maxWireBand !== 'High' && pres.maxWireBand !== 'Critical') {
         actionText = 'Schedule maintenance soon. Ground clearance nearing PEC minimum.';
     }
     
@@ -861,18 +1055,39 @@ function updateTilesFromJson(analysis) {
 
     // CRS
     document.getElementById('crs-value').textContent = pres.crsText;
-    document.getElementById('crs-band').textContent = analysis.crs_band || '--';
+    document.getElementById('crs-band').textContent = hasRiskScore && derivedBandObj?.label
+        ? `${derivedBandObj.label} (${analysis.risk_score.toFixed(1)})`
+        : (effectiveBand !== 'unavailable' ? effectiveBand : '--');
+    const wireCrsSummary = document.getElementById('wire-crs-summary');
+    if (wireCrsSummary) {
+        const maxWireScore = typeof analysis.max_wire_crs === 'number'
+            ? analysis.max_wire_crs
+            : (typeof analysis.max_crs === 'number' ? analysis.max_crs : null);
+        if (maxWireScore !== null && !Number.isNaN(maxWireScore)) {
+            const maxWireBand = getRiskBand(maxWireScore)?.label || analysis.max_wire_band || '--';
+            wireCrsSummary.textContent = `Highest wire risk: ${maxWireBand} (${maxWireScore.toFixed(1)})`;
+            wireCrsSummary.style.display = 'block';
+        } else {
+            wireCrsSummary.textContent = '';
+            wireCrsSummary.style.display = 'none';
+        }
+    }
     const gauge = document.getElementById('crs-fill');
     
     let crsPercent = 0;
-    if (analysis.crs !== null && analysis.crs !== undefined && analysis.crs_band !== 'unavailable') {
-        crsPercent = analysis.crs * 100;
+    let crsNormalized = 0;
+    if (hasRiskScore) {
+        crsPercent = Math.max(0, Math.min(100, analysis.risk_score));
+        crsNormalized = crsPercent / 100.0;
+    } else if (analysis.crs !== null && analysis.crs !== undefined && effectiveBand !== 'unavailable') {
+        crsNormalized = Math.max(0, Math.min(1, Number(analysis.crs) || 0));
+        crsPercent = crsNormalized * 100;
     }
     gauge.style.width = `${crsPercent}%`;
     gauge.style.backgroundColor = pres.crsColor;
     
     const gaugeContainer = document.getElementById('crs-gauge');
-    gaugeContainer.setAttribute('aria-valuenow', analysis.crs !== null ? analysis.crs : 0);
+    gaugeContainer.setAttribute('aria-valuenow', crsNormalized);
     gaugeContainer.setAttribute('aria-valuetext', pres.crsText);
 
     // Sag & Clearance
@@ -899,17 +1114,18 @@ function updateTilesFromJson(analysis) {
             div.style.display = 'flex';
             div.style.justifyContent = 'space-between';
             
-            const color = getWireClassColor(w.class_name);
+            const wireClassName = w?.class_name || w?.name || 'unknown';
+            const color = getWireClassColor(wireClassName);
             const crsLabel = typeof w.crs === 'number' ? w.crs.toFixed(2) : '--';
             const sagLabel = typeof w.sag_m === 'number' ? `${w.sag_m.toFixed(2)}m` : '--';
             div.innerHTML = `
                 <div>
                     <span style="display:inline-block;width:12px;height:12px;background:${color};border-radius:50%;margin-right:8px;"></span>
-                    <strong>Wire ${i+1} (${escapeHtml(w.class_name)})</strong>
-                    <div style="font-size:0.85rem;color:var(--text-muted);">Confidence: ${formatConfidence(w.confidence)}</div>
+                    <strong>Wire ${i+1} (${escapeHtml(wireClassName)})</strong>
+                    <div style="font-size:0.85rem;color:var(--text-muted);">Confidence: ${formatConfidence(w?.confidence)}</div>
                 </div>
                 <div style="text-align:right;">
-                    <div>CRS: ${crsLabel}</div>
+                    <div>Wire CRS: ${crsLabel}</div>
                     <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${sagLabel}</div>
                 </div>
             `;

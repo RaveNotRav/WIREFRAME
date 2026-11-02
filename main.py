@@ -20,7 +20,7 @@ from backend.routes.analysis import router as analysis_router
 from backend.routes.stats import router as stats_router
 from backend import main_state
 from backend.config_store import init_config_store, get_setting
-from backend.mock_detector import is_mock_mode
+from backend.mock_detector import get_mock_scenario, is_mock_mode
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -278,7 +278,7 @@ async def health() -> dict[str, Any]:
     except Exception:
         schema_ver = 0
     ready = is_mock or model_loaded
-    return {
+    resp: dict[str, Any] = {
         "status": "ok",
         "ready": ready,
         "model_status": model_status,
@@ -286,6 +286,9 @@ async def health() -> dict[str, Any]:
         "schema_version": schema_ver,
         "mock_mode": is_mock,
     }
+    if is_mock:
+        resp["mock_scenario"] = get_mock_scenario()
+    return resp
 
 
 @app.get("/api/analysis/{analysis_id}/result", response_class=JSONResponse)
@@ -300,14 +303,24 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
             
         data = dict(row)
         
-        # Map DB columns to frontend expected fields
-        data["crs"] = data.get("max_crs") / 100.0 if data.get("max_crs") is not None else None
-        
+        # Map DB columns to frontend expected fields (single source of truth: risk_score 0-100)
         from backend.formulas import compute_crs_band
-        if data.get("max_crs") is not None:
-            data["crs_band"] = compute_crs_band(data["max_crs"])
+        risk_score = data.get("risk_score")
+        if risk_score is not None:
+            data["crs"] = float(risk_score) / 100.0
+            data["crs_band"] = compute_crs_band(float(risk_score))
         else:
+            data["crs"] = None
             data["crs_band"] = "unavailable"
+        data["risk_band"] = data["crs_band"]
+
+        # Preserve per-wire maximum CRS distinctly from analysis-level risk_score
+        if data.get("max_crs") is not None:
+            data["max_wire_crs"] = data["max_crs"]
+            data["max_wire_band"] = compute_crs_band(float(data["max_crs"]))
+        else:
+            data["max_wire_crs"] = None
+            data["max_wire_band"] = "unavailable"
             
         data["sag_m"] = data.get("sag_meters")
         data["ground_clearance_m"] = data.get("clearance_available")

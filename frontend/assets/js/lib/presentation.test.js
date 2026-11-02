@@ -1,6 +1,7 @@
 import { test, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { statusPresentation, safetyPresentation, formatRejectionReason, shouldShowPublicConfirmation, isTerminalStatus, TERMINAL_STATUSES } from './presentation.js';
+import { getRiskBand, getRiskScorePill } from './formatters.js';
 
 describe('Unified presentation.js tests', () => {
     describe('statusPresentation', () => {
@@ -192,6 +193,117 @@ describe('Unified presentation.js tests', () => {
             assert.equal(isTerminalStatus(undefined), false);
             assert.equal(isTerminalStatus(''), false);
             assert.equal(isTerminalStatus(123), false);
+        });
+    });
+
+    describe('Single source of truth: risk_score band consistency + worst-case wire floor', () => {
+        it('risk_score 44.6 + max_wire_band Critical + near -> Overall Safety Critical, risk band Moderate, accurate reasons', () => {
+            const analysis = {
+                id: 42,
+                status: 'complete',
+                risk_score: 44.6,
+                max_crs: 100.0,
+                max_wire_crs: 100.0,
+                max_wire_band: 'Critical',
+                crs_band: 'Critical', // even if stale crs_band is present, risk_score wins for crsBand
+                ground_clearance_status: 'near',
+                wires: [{ class_name: 'power_line', crs: 100.0, band: 'Critical' }]
+            };
+
+            const dashBand = getRiskBand(analysis.risk_score);
+            const dashPill = getRiskScorePill(analysis.risk_score);
+            const pres = safetyPresentation(analysis);
+
+            assert.equal(dashBand.label, 'Moderate');
+            assert.match(dashPill, />Moderate<\/span>\s*<span[^>]*>\(44\.6\)<\/span>/);
+            assert.equal(pres.crsBand, 'Moderate');
+            assert.equal(pres.crsText, 'Moderate Risk');
+            // Wire floor escalates near + Moderate -> Critical because max_wire_band is Critical
+            assert.equal(pres.text, 'Critical');
+            assert.equal(pres.risk, 'critical');
+            assert.ok(!pres.reasons.includes('CRS band is Critical'), 'Must never say CRS band is Critical when risk_score is 44.6');
+            assert.ok(pres.reasons.some(r => r.includes('Highest wire risk is Critical')), 'Reasons must include Highest wire risk is Critical');
+            assert.ok(pres.reasons.includes('Risk score 44.6 (Moderate)'), 'Reasons must include Risk score 44.6 (Moderate)');
+            assert.ok(pres.reasons.includes('Ground clearance is near legal limit'));
+        });
+
+        it('wire floor escalation cases: High + above + Low -> Unsafe; Moderate + above + Low -> Safe; no_pole + Critical -> Critical; missing max_wire_band -> existing matrix', () => {
+            // 1. max_wire_band High + above + Low score -> Unsafe
+            const resHighWire = safetyPresentation({
+                risk_score: 20.0,
+                max_wire_band: 'High',
+                max_wire_crs: 78.0,
+                ground_clearance_status: 'above'
+            });
+            assert.equal(resHighWire.crsBand, 'Low');
+            assert.equal(resHighWire.text, 'Unsafe');
+            assert.equal(resHighWire.risk, 'high');
+            assert.ok(resHighWire.reasons.includes('Highest wire risk is High (78.0)'));
+            assert.ok(resHighWire.reasons.includes('Risk score 20.0 (Low)'));
+            assert.ok(!resHighWire.reasons.includes('CRS band is High'));
+
+            // 2. max_wire_band Moderate + above + Low score -> Safe (no escalation)
+            const resModWire = safetyPresentation({
+                risk_score: 20.0,
+                max_wire_band: 'Moderate',
+                max_wire_crs: 50.0,
+                ground_clearance_status: 'above'
+            });
+            assert.equal(resModWire.crsBand, 'Low');
+            assert.equal(resModWire.text, 'Safe');
+            assert.equal(resModWire.risk, 'low');
+            assert.ok(!resModWire.reasons.some(r => r.includes('Highest wire risk')));
+
+            // 3. no_pole + Critical wire (with Low risk_score) -> Critical (dangerous wire overrides Incomplete)
+            const resNoPoleCritWire = safetyPresentation({
+                risk_score: 25.0,
+                max_wire_band: 'Critical',
+                max_wire_crs: 92.0,
+                ground_clearance_status: 'no_pole'
+            });
+            assert.equal(resNoPoleCritWire.crsBand, 'Low');
+            assert.equal(resNoPoleCritWire.text, 'Critical');
+            assert.equal(resNoPoleCritWire.risk, 'critical');
+            assert.ok(resNoPoleCritWire.reasons.includes('Highest wire risk is Critical (92.0)'));
+            assert.ok(resNoPoleCritWire.reasons.some(r => r.includes('whole pole and the ground were not visible')));
+
+            // 4. missing max_wire_band -> existing matrix behavior (near + Moderate -> Caution)
+            const resNoWireBand = safetyPresentation({
+                risk_score: 44.6,
+                ground_clearance_status: 'near'
+            });
+            assert.equal(resNoWireBand.crsBand, 'Moderate');
+            assert.equal(resNoWireBand.text, 'Caution');
+            assert.equal(resNoWireBand.risk, 'high');
+        });
+
+        it('boundary scores (0, 33, 33.1, 66, 66.1, 85, 85.1, 100) map identically on dashboard and analyze paths', () => {
+            const cases = [
+                [0, 'Low'],
+                [33, 'Low'],
+                [33.1, 'Moderate'],
+                [66, 'Moderate'],
+                [66.1, 'High'],
+                [85, 'High'],
+                [85.1, 'Critical'],
+                [100, 'Critical'],
+            ];
+
+            for (const [score, expectedBand] of cases) {
+                const dashBand = getRiskBand(score)?.label;
+                const pres = safetyPresentation({ risk_score: score, ground_clearance_status: 'above' });
+                assert.equal(dashBand, expectedBand, `Dashboard getRiskBand(${score}) should be ${expectedBand}`);
+                assert.equal(pres.crsBand, expectedBand, `Analyze safetyPresentation({ risk_score: ${score} }).crsBand should be ${expectedBand}`);
+            }
+        });
+
+        it('0-1 scale value is never mistaken as 0-100 or vice versa', () => {
+            // getRiskBand expects 0-100 scale: 0.85 on 0-100 scale is 0.85% -> Low (never High)
+            assert.equal(getRiskBand(0.85).label, 'Low');
+            assert.equal(getRiskBand(85.0).label, 'High');
+            // An analysis with crs=0.85 (0-1 scale) and risk_score=44.6 (0-100 scale) uses risk_score (44.6 -> Moderate)
+            const pres = safetyPresentation({ risk_score: 44.6, crs: 0.95, ground_clearance_status: 'above' });
+            assert.equal(pres.crsBand, 'Moderate');
         });
     });
 });

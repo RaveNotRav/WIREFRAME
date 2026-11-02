@@ -315,3 +315,194 @@ def test_s2_security_headers_and_csp_report_only(client_unauth, monkeypatch):
         assert_common_headers(res, expect_hsts=True, expect_api_no_store=is_api)
 
 
+def test_events_endpoint_never_leaks_server_paths(client_unauth, tmp_path):
+    """#12: /api/analysis/{id}/events messages contain no 'uploads' path, no backslash, and no absolute path."""
+    import cv2
+    import numpy as np
+    from backend.auth import _hash_token
+    from backend.database import get_connection
+    from backend.utils.pipeline import execute_pipeline
+
+    img_dir = tmp_path / "uploads"
+    img_dir.mkdir(exist_ok=True)
+    img_file = img_dir / "4326d0f9_4709.jpg"
+    img = np.full((600, 800, 3), 128, dtype=np.uint8)
+    cv2.imwrite(str(img_file), img)
+
+    conn = get_connection()
+    guest_tok = "tok_events_no_leak"
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO analyses (filename, status, company, barangay, street, guest_session_id, is_public) VALUES ('4326d0f9_4709.jpg', 'queued', 'Meralco', 'San Antonio', 'Perea St', ?, 1)",
+        (_hash_token(guest_tok),),
+    )
+    a_id = cur.lastrowid
+    # Also insert a legacy event row containing a Windows server path to verify API sanitization
+    cur.execute(
+        "INSERT INTO pipeline_events (analysis_id, state, detail) VALUES (?, 'ImageAcquired', ?)",
+        (a_id, r"Loaded uploads\4326d0f9_4709.jpg"),
+    )
+    conn.commit()
+
+    execute_pipeline(a_id, str(img_file), conn, model=None, batch_id=None)
+    conn.close()
+
+    client_unauth.cookies.set("guest_session", guest_tok)
+    res = client_unauth.get(f"/api/analysis/{a_id}/events")
+    assert res.status_code == 200
+    events = res.json()
+    assert len(events) > 0
+
+    acquired_details = [ev["detail"] for ev in events if ev.get("state") == "ImageAcquired"]
+    assert acquired_details, "Expected at least one ImageAcquired event"
+    for detail in acquired_details:
+        assert detail == "Loaded 4709.jpg"
+
+    for ev in events:
+        detail = ev.get("detail") or ""
+        assert "uploads" not in detail.lower(), f"Event leaked 'uploads': {detail}"
+        assert "\\" not in detail, f"Event leaked backslash: {detail}"
+        assert not detail.startswith("Loaded /"), f"Event leaked absolute POSIX path: {detail}"
+        assert ":" not in detail, f"Event leaked drive/absolute path: {detail}"
+        assert str(tmp_path) not in detail, f"Event leaked tmp_path: {detail}"
+
+
+def test_gps_upload_single_and_batch_storage_and_validation(client_unauth, monkeypatch):
+    """Task 8: single + batch with gps_lat=14.42, gps_lng=120.94 -> stored; empty strings -> NULL, no 422; lat=999 -> 422."""
+    import io
+    import pytest
+    from PIL import Image
+    from backend.database import get_connection
+
+    monkeypatch.setattr("backend.routes.analysis.enqueue_batch", lambda batch_id: None)
+    monkeypatch.setattr("backend.routes.batches.enqueue_batch", lambda batch_id: None)
+
+    def make_png_bytes() -> bytes:
+        buf = io.BytesIO()
+        Image.new("RGB", (64, 64), color=(120, 140, 160)).save(buf, format="PNG")
+        return buf.getvalue()
+
+    img_bytes = make_png_bytes()
+    csrf_headers = {"X-Requested-With": "XMLHttpRequest"}
+
+    # 1. Single upload with gps_lat=14.42, gps_lng=120.94 -> stored in DB
+    res_single = client_unauth.post(
+        "/api/analysis/upload",
+        data={
+            "company": "Meralco",
+            "barangay": "San Antonio",
+            "street": "Pearl Drive",
+            "gps_lat": "14.42",
+            "gps_lng": "120.94",
+        },
+        files={"file": ("single_gps.png", img_bytes, "image/png")},
+        headers=csrf_headers,
+    )
+    assert res_single.status_code == 200, res_single.text
+    single_id = res_single.json()["analysis_id"]
+
+    conn = get_connection()
+    row_single = conn.execute("SELECT gps_lat, gps_lng, gps_source FROM analyses WHERE id = ?", (single_id,)).fetchone()
+    conn.close()
+    assert row_single["gps_lat"] == pytest.approx(14.42)
+    assert row_single["gps_lng"] == pytest.approx(120.94)
+    assert row_single["gps_source"] == "manual"
+
+    # 2. Batch upload with gps_lat=14.42, gps_lng=120.94 -> stored in DB for all batch items
+    res_batch = client_unauth.post(
+        "/api/batches",
+        data={
+            "company": "Meralco",
+            "barangay": "San Antonio",
+            "street": "Pearl Drive",
+            "gps_lat": "14.42",
+            "gps_lng": "120.94",
+        },
+        files=[
+            ("files", ("batch_gps_1.png", img_bytes, "image/png")),
+            ("files", ("batch_gps_2.png", img_bytes, "image/png")),
+        ],
+        headers=csrf_headers,
+    )
+    assert res_batch.status_code == 200, res_batch.text
+    batch_id = res_batch.json()["batch_id"]
+
+    conn = get_connection()
+    batch_rows = conn.execute("SELECT gps_lat, gps_lng, gps_source FROM analyses WHERE batch_id = ?", (batch_id,)).fetchall()
+    conn.close()
+    assert len(batch_rows) == 2
+    for r in batch_rows:
+        assert r["gps_lat"] == pytest.approx(14.42)
+        assert r["gps_lng"] == pytest.approx(120.94)
+        assert r["gps_source"] == "manual"
+
+    # 3. Empty strings -> NULL in DB, no 422 (single + batch)
+    res_empty_single = client_unauth.post(
+        "/api/analysis/upload",
+        data={
+            "company": "Meralco",
+            "barangay": "San Antonio",
+            "street": "Pearl Drive",
+            "gps_lat": "",
+            "gps_lng": "",
+        },
+        files={"file": ("empty_gps.png", img_bytes, "image/png")},
+        headers=csrf_headers,
+    )
+    assert res_empty_single.status_code == 200, res_empty_single.text
+    empty_single_id = res_empty_single.json()["analysis_id"]
+
+    res_empty_batch = client_unauth.post(
+        "/api/batches",
+        data={
+            "company": "Meralco",
+            "barangay": "San Antonio",
+            "street": "Pearl Drive",
+            "gps_lat": "   ",
+            "gps_lng": "",
+        },
+        files=[("files", ("empty_batch.png", img_bytes, "image/png"))],
+        headers=csrf_headers,
+    )
+    assert res_empty_batch.status_code == 200, res_empty_batch.text
+    empty_batch_id = res_empty_batch.json()["batch_id"]
+
+    conn = get_connection()
+    row_empty_s = conn.execute("SELECT gps_lat, gps_lng FROM analyses WHERE id = ?", (empty_single_id,)).fetchone()
+    row_empty_b = conn.execute("SELECT gps_lat, gps_lng FROM analyses WHERE batch_id = ?", (empty_batch_id,)).fetchone()
+    conn.close()
+    assert row_empty_s["gps_lat"] is None and row_empty_s["gps_lng"] is None
+    assert row_empty_b["gps_lat"] is None and row_empty_b["gps_lng"] is None
+
+    # 4. Out-of-range lat=999 -> 422 (single + batch)
+    res_bad_single = client_unauth.post(
+        "/api/analysis/upload",
+        data={
+            "company": "Meralco",
+            "barangay": "San Antonio",
+            "street": "Pearl Drive",
+            "gps_lat": "999",
+            "gps_lng": "120.94",
+        },
+        files={"file": ("bad_gps.png", img_bytes, "image/png")},
+        headers=csrf_headers,
+    )
+    assert res_bad_single.status_code == 422
+
+    res_bad_batch = client_unauth.post(
+        "/api/batches",
+        data={
+            "company": "Meralco",
+            "barangay": "San Antonio",
+            "street": "Pearl Drive",
+            "gps_lat": "999",
+            "gps_lng": "120.94",
+        },
+        files=[("files", ("bad_batch.png", img_bytes, "image/png"))],
+        headers=csrf_headers,
+    )
+    assert res_bad_batch.status_code == 422
+
+
+
+
