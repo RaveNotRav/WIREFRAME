@@ -3,7 +3,7 @@
 import { fetchApi, showToast } from './main.js';
 import { initTheme, toggleTheme } from './lib/theme.js';
 import { getNaturalCoordinates } from './lib/coordinates.js';
-import { escapeHtml, formatConfidence, getWireClassColor, getRiskBand } from './lib/formatters.js';
+import { escapeHtml, formatConfidence, getWireClassColor, getRiskBand, formatGpsSourceLabel } from './lib/formatters.js';
 import { statusPresentation, safetyPresentation, shouldShowPublicConfirmation, isTerminalStatus } from './lib/presentation.js';
 
 let currentUser = null;
@@ -46,15 +46,26 @@ export function formatGpsError(err) {
     return 'Could not get location. Please try again or enter coordinates manually.';
 }
 
+export { formatGpsSourceLabel };
+
 export function getLastGpsFix() {
     return { ...lastGpsFix };
 }
 
-export function setLastGpsFix(lat, lng, source = 'Browser (Device)') {
+export function setLastGpsFix(lat, lng, source = 'device') {
+    const rawSource = String(source || '').trim().toLowerCase();
+    let normalizedSource = source || '';
+    if (rawSource === 'device' || rawSource === 'browser (device)') {
+        normalizedSource = 'device';
+    } else if (rawSource === 'manual') {
+        normalizedSource = 'manual';
+    } else if (rawSource === 'exif') {
+        normalizedSource = 'exif';
+    }
     lastGpsFix = {
         lat: lat !== undefined && lat !== null ? String(lat).trim() : '',
         lng: lng !== undefined && lng !== null ? String(lng).trim() : '',
-        source: source || ''
+        source: normalizedSource
     };
 }
 
@@ -420,10 +431,10 @@ export function requestGpsLocation() {
             if (btnGps) btnGps.disabled = false;
             const latVal = String(pos.coords.latitude);
             const lngVal = String(pos.coords.longitude);
-            setLastGpsFix(latVal, lngVal, 'Browser (Device)');
+            setLastGpsFix(latVal, lngVal, 'device');
             if (latInput) latInput.value = latVal;
             if (lngInput) lngInput.value = lngVal;
-            if (sourceEl) sourceEl.textContent = 'Source: Browser (Device)';
+            if (sourceEl) sourceEl.textContent = `Source: ${formatGpsSourceLabel('device')}`;
             validateGPS(pos.coords.latitude, pos.coords.longitude);
         },
         (err) => {
@@ -433,7 +444,7 @@ export function requestGpsLocation() {
             if (lastGpsFix.lat && lastGpsFix.lng) {
                 if (latInput && !latInput.value) latInput.value = lastGpsFix.lat;
                 if (lngInput && !lngInput.value) lngInput.value = lastGpsFix.lng;
-                if (sourceEl) sourceEl.textContent = `Source: ${lastGpsFix.source || 'Browser (Device)'} (kept previous fix; ${msg})`;
+                if (sourceEl) sourceEl.textContent = `Source: ${formatGpsSourceLabel(lastGpsFix.source || 'device')} (kept previous fix; ${msg})`;
             } else {
                 if (sourceEl) sourceEl.textContent = msg;
             }
@@ -445,13 +456,16 @@ export function requestGpsLocation() {
 export function setupGPSHandlers() {
     const latInput = document.getElementById('input-lat');
     const lngInput = document.getElementById('input-lng');
+    const sourceEl = document.getElementById('gps-source-text');
     const syncManualGps = () => {
         const latVal = latInput ? String(latInput.value || '').trim() : '';
         const lngVal = lngInput ? String(lngInput.value || '').trim() : '';
-        if (latVal && lngVal) {
-            setLastGpsFix(latVal, lngVal, 'Manual');
-        } else if (!latVal && !lngVal) {
+        if (latVal || lngVal) {
+            setLastGpsFix(latVal, lngVal, 'manual');
+            if (sourceEl) sourceEl.textContent = `Source: ${formatGpsSourceLabel('manual')}`;
+        } else {
             clearGpsState();
+            if (sourceEl) sourceEl.textContent = '';
         }
     };
     latInput?.addEventListener('input', syncManualGps);
@@ -508,6 +522,13 @@ export async function startAnalysis() {
     const rawLng = document.getElementById('input-lng')?.value;
     const lat = (rawLat !== undefined && rawLat !== null && String(rawLat).trim() !== '') ? String(rawLat).trim() : lastGpsFix.lat;
     const lng = (rawLng !== undefined && rawLng !== null && String(rawLng).trim() !== '') ? String(rawLng).trim() : lastGpsFix.lng;
+    const isUneditedDeviceFix = Boolean(
+        lat && lng &&
+        lastGpsFix.source === 'device' &&
+        lat === lastGpsFix.lat &&
+        lng === lastGpsFix.lng
+    );
+    const gpsSource = (lat && lng) ? (isUneditedDeviceFix ? 'device' : 'manual') : '';
     
     if (lat && lng) validateGPS(parseFloat(lat), parseFloat(lng));
     
@@ -532,10 +553,12 @@ export async function startAnalysis() {
             if (notes) formData.append('notes', notes);
             if (lat) formData.append('gps_lat', lat);
             if (lng) formData.append('gps_lng', lng);
+            if (gpsSource) formData.append('gps_source', gpsSource);
             
             const res = await fetchApi('/api/analysis/upload', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                allowAnon: true
             });
             const data = await res.json();
             if (!res.ok || !data.analysis_id) {
@@ -561,6 +584,7 @@ export async function startAnalysis() {
             
             if (lat) formData.append('gps_lat', lat);
             if (lng) formData.append('gps_lng', lng);
+            if (gpsSource) formData.append('gps_source', gpsSource);
             const res = await fetchApi('/api/batches', {
                 method: 'POST',
                 body: formData,

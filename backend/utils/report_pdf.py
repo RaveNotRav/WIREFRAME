@@ -39,6 +39,18 @@ def format_pht_timestamp(utc_val=None, include_time: bool = True) -> str:
     except Exception:
         return str(utc_val)
 
+def format_gps_source_label(source) -> str:
+    if not source:
+        return ""
+    s = str(source).strip().lower()
+    mapping = {
+        "device": "Device GPS",
+        "manual": "Manual entry",
+        "exif": "Photo EXIF",
+    }
+    return mapping.get(s, str(source))
+
+
 def safe_str(s):
     if s is None:
         return ""
@@ -175,7 +187,7 @@ def build_pdf(data: dict, output_path: str):
     
     gps_str = f"<b>GPS:</b> {safe_str(data.get('gps_lat'))}, {safe_str(data.get('gps_lng'))}"
     if data.get('gps_source'):
-        gps_str += f" <i>(Source: {safe_str(data.get('gps_source'))})</i>"
+        gps_str += f" <i>(Source: {safe_str(format_gps_source_label(data.get('gps_source')))})</i>"
     elements.append(Paragraph(gps_str, normal_style))
     elements.append(Spacer(1, 12))
     

@@ -50,6 +50,15 @@ export function getSafetyPill(level) {
     return `<span class="neu-pill neu-pill-safety-${l}">${escapeHtml(level)}</span>`;
 }
 
+export function formatGpsSourceLabel(source) {
+    if (!source) return '';
+    const s = String(source).trim().toLowerCase();
+    if (s === 'device' || s === 'browser (device)') return 'Device GPS';
+    if (s === 'manual') return 'Manual entry';
+    if (s === 'exif') return 'Photo EXIF';
+    return String(source);
+}
+
 export function parseDbTimestamp(str) {
     if (!str) return null;
     const iso = str.includes('T') ? str : str.replace(' ', 'T');

@@ -537,6 +537,106 @@ describe('Analyze Upload Queue Reset & Retry Tests', () => {
             assert.strictEqual(mockElements['wire-crs-summary'].textContent, 'Highest wire risk: Critical (100.0)');
             assert.strictEqual(mockElements['crs-fill'].style.width, '44.6%');
         });
+
+        it('429 rate-limit response shows detail message (escaped) and retains queued files and GPS fix for retry', async () => {
+            const fakeFile = { name: 'rate_limited.jpg', size: 2048, type: 'image/jpeg' };
+            analyzeModule.setCurrentFiles([fakeFile]);
+            analyzeModule.setFileThumbURLs(['blob:http://localhost/rate_limited.jpg']);
+            analyzeModule.setLastGpsFix('14.6051796', '120.962724', 'device');
+            mockElements['input-lat'].value = '14.6051796';
+            mockElements['input-lng'].value = '120.962724';
+            mockElements['thumbnails'].innerHTML = '<div>thumb_preview</div>';
+            mockElements['file-input'].value = 'C:\\fakepath\\rate_limited.jpg';
+
+            const rateLimitDetail = 'Too many uploads. Please wait a few minutes and try again.';
+            globalThis.fetch = async () => ({
+                ok: false,
+                status: 429,
+                headers: { get: (k) => (k.toLowerCase() === 'retry-after' ? '895' : null) },
+                json: async () => ({ detail: rateLimitDetail })
+            });
+
+            await analyzeModule.startAnalysis();
+
+            assert.strictEqual(mockElements['status-reason'].textContent, rateLimitDetail);
+            assert.strictEqual(analyzeModule.getCurrentFiles().length, 1);
+            assert.strictEqual(analyzeModule.getCurrentFiles()[0].name, 'rate_limited.jpg');
+            assert.strictEqual(analyzeModule.getLastGpsFix().lat, '14.6051796');
+            assert.strictEqual(analyzeModule.getLastGpsFix().lng, '120.962724');
+            assert.strictEqual(analyzeModule.getLastGpsFix().source, 'device');
+            assert.strictEqual(revokedUrls.length, 0);
+        });
+
+        it('gps_source sends "device" for unedited browser fix, "manual" after editing lat/lng, and maps labels consistently', async () => {
+            assert.strictEqual(analyzeModule.formatGpsSourceLabel('device'), 'Device GPS');
+            assert.strictEqual(analyzeModule.formatGpsSourceLabel('manual'), 'Manual entry');
+            assert.strictEqual(analyzeModule.formatGpsSourceLabel('exif'), 'Photo EXIF');
+
+            // 1. Browser geolocation fix -> unedited -> gps_source="device" (single)
+            let latInputHandler = null;
+            mockElements['input-lat'] = makeMockElement({
+                value: '',
+                addEventListener: (ev, cb) => { if (ev === 'input') latInputHandler = cb; }
+            });
+            mockElements['input-lng'] = makeMockElement({ value: '' });
+            mockElements['gps-source-text'] = makeMockElement({ textContent: '' });
+            mockElements['btn-gps'] = makeMockElement({ disabled: false });
+
+            analyzeModule.setupGPSHandlers();
+
+            Object.defineProperty(globalThis, 'navigator', {
+                value: {
+                    geolocation: {
+                        getCurrentPosition: (onSuccess) => {
+                            onSuccess({ coords: { latitude: 14.605, longitude: 120.962 } });
+                        }
+                    }
+                },
+                configurable: true,
+                writable: true
+            });
+
+            analyzeModule.requestGpsLocation();
+            assert.strictEqual(mockElements['gps-source-text'].textContent, 'Source: Device GPS');
+            assert.strictEqual(analyzeModule.getLastGpsFix().source, 'device');
+
+            let singleEntries = [];
+            analyzeModule.setCurrentFiles([{ name: 'device_single.jpg' }]);
+            globalThis.fetch = async (url, opts) => {
+                if (url.includes('/api/analysis/upload')) {
+                    singleEntries = opts.body.entries;
+                    return { ok: true, status: 200, json: async () => ({ analysis_id: 801, batch_id: 81 }) };
+                }
+                return { ok: true, status: 200, json: async () => ({ status: 'complete' }) };
+            };
+            await analyzeModule.startAnalysis();
+            analyzeModule.stopAllPolling();
+            assert.ok(singleEntries.some(([k, v]) => k === 'gps_source' && v === 'device'), 'Unedited browser fix must send gps_source=device');
+
+            // 2. Browser geolocation fix -> user edits lat -> gps_source="manual" (batch)
+            analyzeModule.requestGpsLocation();
+            assert.strictEqual(analyzeModule.getLastGpsFix().source, 'device');
+            mockElements['input-lat'].value = '14.610';
+            if (latInputHandler) latInputHandler();
+            assert.strictEqual(analyzeModule.getLastGpsFix().source, 'manual');
+            assert.strictEqual(mockElements['gps-source-text'].textContent, 'Source: Manual entry');
+
+            let batchEntries = [];
+            analyzeModule.setCurrentFiles([{ name: 'b1.jpg' }, { name: 'b2.jpg' }]);
+            globalThis.fetch = async (url, opts) => {
+                if (url.endsWith('/api/batches')) {
+                    batchEntries = opts.body.entries;
+                    return { ok: true, status: 200, json: async () => ({ batch_id: 82 }) };
+                }
+                if (url.includes('/api/batches/82')) {
+                    return { ok: true, status: 200, json: async () => ({ analyses: [{ id: 802, status: 'queued' }, { id: 803, status: 'queued' }] }) };
+                }
+                return { ok: true, status: 200, json: async () => ({ status: 'complete' }) };
+            };
+            await analyzeModule.startAnalysis();
+            analyzeModule.stopAllPolling();
+            assert.ok(batchEntries.some(([k, v]) => k === 'gps_source' && v === 'manual'), 'Edited coordinate must send gps_source=manual');
+        });
     });
 
     describe('Demo Flow Batch A Fixes (#3, #6, #8)', () => {

@@ -79,12 +79,14 @@ async def upload_image(
     notes: str = Form(None, max_length=2000),
     gps_lat: str = Form(None, max_length=50),
     gps_lng: str = Form(None, max_length=50),
+    gps_source: str | None = Form(None, max_length=20),
     user: User | None = Depends(get_optional_user)
 ):
     guest_session_id = None
     guest_token = None
     if user is None:
-        
+        if os.getenv("WIREFRAME_PUBLIC") == "1":
+            check_anon_rate_limit(req)
         guest_token = req.cookies.get("guest_session")
         if not guest_token:
             guest_token = secrets.token_urlsafe(32)
@@ -140,7 +142,8 @@ async def upload_image(
     with open(out_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    gps_source = None
+    resolved_gps_source = None
+    requested_gps_source = gps_source.strip().lower() if isinstance(gps_source, str) else ""
     width, height = None, None
     try:
         from PIL import ImageOps
@@ -152,9 +155,9 @@ async def upload_image(
                 exif_lat, exif_lng = extract_gps(img)
                 if exif_lat is not None and exif_lng is not None:
                     parsed_lat, parsed_lng, gps_warning = validate_gps_coordinates(exif_lat, exif_lng)
-                    gps_source = 'exif'
+                    resolved_gps_source = 'exif'
             elif parsed_lat is not None and parsed_lng is not None:
-                gps_source = 'manual'
+                resolved_gps_source = requested_gps_source if requested_gps_source in ("device", "manual") else "manual"
             
             img_t = ImageOps.exif_transpose(img)
             width, height = img_t.size
@@ -188,7 +191,7 @@ async def upload_image(
             """INSERT INTO analyses 
                (filename, status, company, barangay, street, sector, notes, batch_id, created_by, site_id, gps_lat, gps_lng, gps_source, width, height, is_mock, guest_session_id, is_public) 
                VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (safe_name, comp, brgy, st, sector, notes, batch_id, user.id if user else None, site_id, parsed_lat, parsed_lng, gps_source, width, height, is_mock_flag, guest_session_id, is_public)
+            (safe_name, comp, brgy, st, sector, notes, batch_id, user.id if user else None, site_id, parsed_lat, parsed_lng, resolved_gps_source, width, height, is_mock_flag, guest_session_id, is_public)
         )
         analysis_id = cur.lastrowid
         conn.commit()

@@ -670,6 +670,218 @@ def test_geojson_export_skips_and_counts_no_gps_records(client_admin, _init_sett
     assert res.headers.get("X-Skipped-Count") == "1"
 
 
+def test_public_guest_upload_rate_limit(client_unauth, client_admin, monkeypatch, tmp_path, caplog):
+    import io
+    from PIL import Image
+    from backend.auth import reset_rate_limits
+    import backend.routes.analysis as analysis_route
+    import backend.routes.batches as batches_route
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(analysis_route, "enqueue_batch", lambda *args, **kwargs: None)
+    monkeypatch.setattr(batches_route, "enqueue_batch", lambda *args, **kwargs: None)
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color=(100, 150, 200)).save(buf, format="PNG")
+    img_bytes = buf.getvalue()
+    csrf = {"X-Requested-With": "XMLHttpRequest"}
+    form_data = {"company": "Meralco", "barangay": "San Antonio", "street": "Pearl Drive"}
+
+    # 1. Local/dev mode (WIREFRAME_PUBLIC not set) -> guest is NOT rate limited past 10
+    monkeypatch.delenv("WIREFRAME_PUBLIC", raising=False)
+    monkeypatch.delenv("WIREFRAME_GUEST_UPLOAD_LIMIT", raising=False)
+    reset_rate_limits()
+    for i in range(12):
+        r = client_unauth.post(
+            "/api/analysis/upload",
+            data=form_data,
+            files={"file": (f"dev_{i}.png", img_bytes, "image/png")},
+            headers=csrf,
+        )
+        assert r.status_code == 200, f"Dev mode upload {i+1} should not be rate limited: {r.text}"
+
+    # 2. Public mode (WIREFRAME_PUBLIC=1), default limit 10 (including batch counting as 1 request)
+    monkeypatch.setenv("WIREFRAME_PUBLIC", "1")
+    reset_rate_limits()
+
+    # 9 single uploads + 1 batch upload (2 files) = 10 requests total -> all succeed
+    for i in range(9):
+        r = client_unauth.post(
+            "/api/analysis/upload",
+            data=form_data,
+            files={"file": (f"pub_{i}.png", img_bytes, "image/png")},
+            headers=csrf,
+        )
+        assert r.status_code == 200, r.text
+
+    r_batch = client_unauth.post(
+        "/api/batches",
+        data=form_data,
+        files=[
+            ("files", ("pub_b1.png", img_bytes, "image/png")),
+            ("files", ("pub_b2.png", img_bytes, "image/png")),
+        ],
+        headers=csrf,
+    )
+    assert r_batch.status_code == 200, r_batch.text
+
+    # Snapshot uploads directory before 11th request
+    uploads_dir = tmp_path / "uploads"
+    files_before_429 = set(uploads_dir.iterdir()) if uploads_dir.exists() else set()
+
+    # 11th upload (single) -> 429 with Retry-After and exact detail, no file written
+    r_11 = client_unauth.post(
+        "/api/analysis/upload",
+        data=form_data,
+        files={"file": ("blocked_single.png", img_bytes, "image/png")},
+        headers=csrf,
+    )
+    assert r_11.status_code == 429
+    assert r_11.json()["detail"] == "Too many uploads. Please wait a few minutes and try again."
+    retry_after = r_11.headers.get("Retry-After")
+    assert retry_after is not None and int(retry_after) > 0
+    files_after_429 = set(uploads_dir.iterdir()) if uploads_dir.exists() else set()
+    assert files_after_429 == files_before_429
+
+    # Batch upload at limit also returns 429 before writing any files
+    r_batch_blocked = client_unauth.post(
+        "/api/batches",
+        data=form_data,
+        files=[("files", ("blocked_batch.png", img_bytes, "image/png"))],
+        headers=csrf,
+    )
+    assert r_batch_blocked.status_code == 429
+    assert r_batch_blocked.json()["detail"] == "Too many uploads. Please wait a few minutes and try again."
+    assert r_batch_blocked.headers.get("Retry-After") is not None
+    assert (set(uploads_dir.iterdir()) if uploads_dir.exists() else set()) == files_before_429
+
+    # 3. Logged-in user is NOT limited by check_anon_rate_limit in public mode
+    r_admin = client_admin.post(
+        "/api/analysis/upload",
+        data=form_data,
+        files={"file": ("admin_ok.png", img_bytes, "image/png")},
+        headers=csrf,
+    )
+    assert r_admin.status_code == 200, r_admin.text
+
+    # 4. Separate right-most XFF IPs have separate buckets + env limit override
+    monkeypatch.setenv("TRUSTED_PROXY", "1")
+    monkeypatch.setenv("WIREFRAME_GUEST_UPLOAD_LIMIT", "2")
+    reset_rate_limits()
+
+    xff_ip1 = {**csrf, "X-Forwarded-For": "10.0.0.1, 203.0.113.10"}
+    xff_ip2 = {**csrf, "X-Forwarded-For": "10.0.0.1, 203.0.113.20"}
+
+    assert client_unauth.post("/api/analysis/upload", data=form_data, files={"file": ("ip1_1.png", img_bytes, "image/png")}, headers=xff_ip1).status_code == 200
+    assert client_unauth.post("/api/analysis/upload", data=form_data, files={"file": ("ip1_2.png", img_bytes, "image/png")}, headers=xff_ip1).status_code == 200
+    assert client_unauth.post("/api/analysis/upload", data=form_data, files={"file": ("ip1_3.png", img_bytes, "image/png")}, headers=xff_ip1).status_code == 429
+
+    # Second IP still has its own bucket
+    assert client_unauth.post("/api/analysis/upload", data=form_data, files={"file": ("ip2_1.png", img_bytes, "image/png")}, headers=xff_ip2).status_code == 200
+
+    # 5. Invalid env -> default 10 + logged warning
+    monkeypatch.setenv("WIREFRAME_GUEST_UPLOAD_LIMIT", "not-a-number")
+    from backend.auth import get_guest_upload_limit
+    with caplog.at_level("WARNING"):
+        assert get_guest_upload_limit() == 10
+    assert any("WIREFRAME_GUEST_UPLOAD_LIMIT" in rec.message for rec in caplog.records)
+
+
+def test_gps_source_device_manual_exif_and_labels(client_unauth, monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    from backend.database import get_connection
+    from backend.utils.report_pdf import format_gps_source_label
+    import backend.routes.analysis as analysis_route
+    import backend.routes.batches as batches_route
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(analysis_route, "enqueue_batch", lambda *args, **kwargs: None)
+    monkeypatch.setattr(batches_route, "enqueue_batch", lambda *args, **kwargs: None)
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), color=(80, 120, 160)).save(buf, format="PNG")
+    img_bytes = buf.getvalue()
+    csrf = {"X-Requested-With": "XMLHttpRequest"}
+    base_form = {"company": "Meralco", "barangay": "San Antonio", "street": "Pearl Drive"}
+
+    # Display label helper mapping
+    assert format_gps_source_label("device") == "Device GPS"
+    assert format_gps_source_label("manual") == "Manual entry"
+    assert format_gps_source_label("exif") == "Photo EXIF"
+
+    # 1. Single upload: device, manual, bogus (-> manual), no-coords (-> NULL)
+    for src_in, expected_src in [("device", "device"), ("manual", "manual"), ("bogus_val", "manual"), (None, "manual")]:
+        payload = {**base_form, "gps_lat": "14.605", "gps_lng": "120.962"}
+        if src_in is not None:
+            payload["gps_source"] = src_in
+        r = client_unauth.post("/api/analysis/upload", data=payload, files={"file": ("s.png", img_bytes, "image/png")}, headers=csrf)
+        assert r.status_code == 200, r.text
+        aid = r.json()["analysis_id"]
+        conn = get_connection()
+        row = conn.execute("SELECT gps_source FROM analyses WHERE id = ?", (aid,)).fetchone()
+        conn.close()
+        assert row["gps_source"] == expected_src
+
+    # Single no-coords -> NULL even if gps_source="device" sent
+    r_no_coords = client_unauth.post(
+        "/api/analysis/upload",
+        data={**base_form, "gps_source": "device"},
+        files={"file": ("no_coords.png", img_bytes, "image/png")},
+        headers=csrf,
+    )
+    assert r_no_coords.status_code == 200
+    conn = get_connection()
+    row_nc = conn.execute("SELECT gps_source FROM analyses WHERE id = ?", (r_no_coords.json()["analysis_id"],)).fetchone()
+    conn.close()
+    assert row_nc["gps_source"] is None
+
+    # Single EXIF fallback stays "exif" when no form coords posted
+    monkeypatch.setattr(analysis_route, "extract_gps", lambda _img: (14.55, 121.02))
+    r_exif = client_unauth.post(
+        "/api/analysis/upload",
+        data=base_form,
+        files={"file": ("exif_img.png", img_bytes, "image/png")},
+        headers=csrf,
+    )
+    assert r_exif.status_code == 200
+    conn = get_connection()
+    row_exif = conn.execute("SELECT gps_lat, gps_lng, gps_source FROM analyses WHERE id = ?", (r_exif.json()["analysis_id"],)).fetchone()
+    conn.close()
+    assert row_exif["gps_source"] == "exif"
+    assert row_exif["gps_lat"] == 14.55
+
+    # 2. Batch upload: device, manual, bogus (-> manual), no-coords (-> NULL)
+    for src_in, expected_src in [("device", "device"), ("manual", "manual"), ("invalid_src", "manual")]:
+        b_payload = {**base_form, "gps_lat": "14.42", "gps_lng": "120.94", "gps_source": src_in}
+        rb = client_unauth.post(
+            "/api/batches",
+            data=b_payload,
+            files=[("files", ("b1.png", img_bytes, "image/png")), ("files", ("b2.png", img_bytes, "image/png"))],
+            headers=csrf,
+        )
+        assert rb.status_code == 200, rb.text
+        bid = rb.json()["batch_id"]
+        conn = get_connection()
+        b_rows = conn.execute("SELECT gps_source FROM analyses WHERE batch_id = ?", (bid,)).fetchall()
+        conn.close()
+        assert len(b_rows) == 2
+        assert all(r["gps_source"] == expected_src for r in b_rows)
+
+    rb_nc = client_unauth.post(
+        "/api/batches",
+        data={**base_form, "gps_source": "device"},
+        files=[("files", ("b_nc.png", img_bytes, "image/png"))],
+        headers=csrf,
+    )
+    assert rb_nc.status_code == 200
+    conn = get_connection()
+    b_nc_row = conn.execute("SELECT gps_source FROM analyses WHERE batch_id = ?", (rb_nc.json()["batch_id"],)).fetchone()
+    conn.close()
+    assert b_nc_row["gps_source"] is None
+
+
+
 
 
 

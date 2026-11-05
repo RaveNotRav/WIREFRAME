@@ -38,6 +38,7 @@ async def create_batch(
     notes: str | None = Form(None, max_length=2000),
     gps_lat: str | None = Form(None),
     gps_lng: str | None = Form(None),
+    gps_source: str | None = Form(None, max_length=20),
     user: User | None = Depends(get_optional_user)
 ):
     guest_session_id = None
@@ -46,6 +47,8 @@ async def create_batch(
     if user:
         check_rate_limit(req, "upload", user.username, limit=30, window=60)
     else:
+        if os.getenv("WIREFRAME_PUBLIC") == "1":
+            check_anon_rate_limit(req)
         is_public = 1
         guest_token = req.cookies.get("guest_session")
         if not guest_token:
@@ -147,10 +150,16 @@ async def create_batch(
             
         is_mock_flag = 1 if os.getenv("WIREFRAME_MOCK") == "1" else 0
         notes_val = notes if isinstance(notes, str) else None
+        req_gps_src = gps_source.strip().lower() if isinstance(gps_source, str) else ""
+        resolved_gps_source = (
+            (req_gps_src if req_gps_src in ("device", "manual") else "manual")
+            if (lat_val is not None and lng_val is not None)
+            else None
+        )
         for safe_name in saved_files:
             conn.execute(
                 "INSERT INTO analyses (filename, status, company, barangay, street, sector, notes, batch_id, created_by, site_id, is_mock, guest_session_id, is_public, gps_lat, gps_lng, gps_source) VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (safe_name, comp, brgy, st, sector, notes_val, batch_id, user.id if user else None, site_id, is_mock_flag, guest_session_id, is_public, lat_val, lng_val, "manual" if lat_val is not None else None)
+                (safe_name, comp, brgy, st, sector, notes_val, batch_id, user.id if user else None, site_id, is_mock_flag, guest_session_id, is_public, lat_val, lng_val, resolved_gps_source)
             )
             
         conn.commit()

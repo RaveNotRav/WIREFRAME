@@ -244,7 +244,26 @@ def reset_rate_limits():
         _rate_limits.clear()
 
 
-def check_anon_rate_limit(request: Request, limit: int = 3, window: int = 900):
+def get_guest_upload_limit() -> int:
+    raw = os.getenv("WIREFRAME_GUEST_UPLOAD_LIMIT")
+    if raw is None or not str(raw).strip():
+        return 10
+    try:
+        val = int(str(raw).strip())
+        if val <= 0:
+            raise ValueError("limit must be positive")
+        return val
+    except ValueError:
+        import logging
+        logging.getLogger(__name__).warning(
+            f"Invalid WIREFRAME_GUEST_UPLOAD_LIMIT={raw!r}; falling back to default 10"
+        )
+        return 10
+
+
+def check_anon_rate_limit(request: Request, limit: int | None = None, window: int = 900):
+    if limit is None:
+        limit = get_guest_upload_limit()
     ip = get_trusted_client_ip(request)
     
     key = f"anon_upload:{ip}"
@@ -261,7 +280,13 @@ def check_anon_rate_limit(request: Request, limit: int = 3, window: int = 900):
         history = [t for t in history if now - t < window]
         
         if len(history) >= limit:
-            raise HTTPException(status_code=429, detail="You have reached the maximum number of public uploads (3 per 15 minutes). Please try again later or log in.")
+            oldest = min(history) if history else now
+            retry_after = max(1, int(window - (now - oldest)))
+            raise HTTPException(
+                status_code=429,
+                detail="Too many uploads. Please wait a few minutes and try again.",
+                headers={"Retry-After": str(retry_after)},
+            )
             
         history.append(now)
         _rate_limits[key] = history
