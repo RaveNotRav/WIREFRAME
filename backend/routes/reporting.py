@@ -13,7 +13,7 @@ import io
 
 from backend import main_state
 from backend.auth import User, get_current_user, get_optional_user, verify_analysis_access, require_role, verify_csrf
-from backend.config_store import NO_WIRES_ACTION_TEXT
+from backend.config_store import NO_WIRES_ACTION_TEXT, get_setting
 from backend.database import get_connection
 from backend.utils.report_pdf import build_pdf, build_summary_pdf, format_pht_timestamp
 
@@ -141,13 +141,19 @@ def _get_analysis_data(conn, analysis_id: int):
     data['scale_source'] = "Manual Calibration" if data['calibrations'] else "Assumed Pole Height"
     
     model = main_state.get_model()
-    data['model_file'] = os.path.basename(model.model.pt_path) if model else "mock"
+    pt_path = (
+        getattr(getattr(model, "model", None), "pt_path", None)
+        or getattr(model, "ckpt_path", None)
+        or getattr(model, "pt_path", None)
+        or (get_setting("model_path") if model else None)
+    )
+    data['model_file'] = os.path.basename(str(pt_path)) if (model and pt_path) else ("wireframe_seg.pt" if model else "mock")
     if data['is_mock']:
         data['model_file'] = "mock"
         
     return data
 
-TEMPLATE_VERSION = "v3"
+TEMPLATE_VERSION = "v4"
 
 def _hash_analysis(data):
     # Hash the parts that affect the PDF
@@ -158,6 +164,7 @@ def _hash_analysis(data):
     h.update(str(len(data.get('calibrations', []))).encode('utf-8'))
     h.update(str(data.get('settings', {})).encode('utf-8'))
     h.update(str(data.get('is_mock')).encode('utf-8'))
+    h.update(str(data.get('is_public')).encode('utf-8'))
     h.update(TEMPLATE_VERSION.encode('utf-8')) # template version
     return h.hexdigest()
 
@@ -228,9 +235,25 @@ def get_pdf_report(analysis_id: int, req: Request, user: User | None = Depends(g
         conn.close()
 
 class SummaryRequest(BaseModel):
-    analysis_ids: list[int]
+    analysis_ids: list[int] = []
     include_mock: bool = False
     include_invalid: bool = False
+
+
+NO_VERIFIED_RECORDS_MSG = (
+    "No verified records to export. Public tips and mock data are excluded from official exports. "
+    "Check 'Include Mock' to export test data (marked as unverified)."
+)
+
+
+def _format_record_source_label(is_mock: bool, is_public: bool) -> str:
+    labels = []
+    if is_mock:
+        labels.append("Mock")
+    if is_public:
+        labels.append("Public tip")
+    return " / ".join(labels) if labels else "Verified"
+
 
 @router.post("/reports/summary", dependencies=[Depends(verify_csrf)])
 def generate_summary(
@@ -245,6 +268,8 @@ def generate_summary(
     try:
         items = []
         has_mock = False
+        has_unverified = False
+        allow_mock = bool(payload.include_mock)
         allow_invalid = (include_invalid or payload.include_invalid) and (user.role in ("admin", "lgu_engineer"))
         skipped_count = 0
         
@@ -263,10 +288,14 @@ def generate_summary(
             elif data["status"] != "complete":
                 raise HTTPException(status_code=409, detail=f"Analysis {aid} is not complete")
                 
-            if data["is_mock"]:
-                if not payload.include_mock:
-                    continue
+            rec_mock = bool(data.get("is_mock"))
+            rec_public = bool(data.get("is_public"))
+            if (rec_mock or rec_public) and not allow_mock:
+                continue
+            if rec_mock:
                 has_mock = True
+            if rec_mock or rec_public:
+                has_unverified = True
                 
             items.append({
                 "id": data["id"],
@@ -278,8 +307,15 @@ def generate_summary(
                 "vni": data.get("vni", "--"),
                 "max_crs": data.get("max_crs", "--"),
                 "safety_level": data["safety_level"],
-                "action": data["action_text"]
+                "action": data["action_text"],
+                "is_mock": rec_mock,
+                "is_public": rec_public,
+                "verified": not (rec_mock or rec_public),
+                "source_label": _format_record_source_label(rec_mock, rec_public),
             })
+            
+        if not items:
+            raise HTTPException(status_code=400, detail=NO_VERIFIED_RECORDS_MSG)
             
         # Sort by safety
         risk_map = {"Critical": 4, "Unsafe": 3, "Caution": 2, "Safe": 1, "Unknown": 0, "No Wires Detected": -1, "Rejected": -2}
@@ -299,6 +335,7 @@ def generate_summary(
         
         summary_data = {
             "has_mock": has_mock,
+            "has_unverified": has_unverified,
             "items": items,
             "skipped_invalid": skipped_count
         }
@@ -330,9 +367,15 @@ def export_geojson(
     conn = get_connection()
     try:
         features = []
+        allow_mock = bool(payload.include_mock)
         allow_invalid = (include_invalid or payload.include_invalid) and (user.role in ("admin", "lgu_engineer"))
         skipped_count = 0
         skipped_no_gps = 0
+        contains_unverified = False
+        eligible_before_gps = 0
+        
+        from backend.formulas import compute_crs_band
+        from backend.utils.report_pdf import format_gps_source_label
         
         for aid in payload.analysis_ids:
             data = _get_analysis_data(conn, aid)
@@ -349,18 +392,29 @@ def export_geojson(
             elif data["status"] != "complete":
                 continue
                 
-            if data["is_mock"] and not payload.include_mock:
+            rec_mock = bool(data.get("is_mock"))
+            rec_public = bool(data.get("is_public"))
+            if (rec_mock or rec_public) and not allow_mock:
                 continue
                 
+            eligible_before_gps += 1
             lat = data.get("gps_lat")
             lng = data.get("gps_lng")
             if lat is None or lng is None:
                 skipped_no_gps += 1
                 continue
             
+            if rec_mock or rec_public:
+                contains_unverified = True
+                
             wires = data.get("wires", [])
             gc_vals = [w.get("clearance_m") for w in wires if w.get("clearance_m") is not None]
             ground_clearance_m = min(gc_vals) if gc_vals else None
+            
+            risk_score = data.get("risk_score")
+            risk_band = compute_crs_band(float(risk_score)) if risk_score is not None else "unavailable"
+            raw_gps_src = data.get("gps_source")
+            gps_src_label = format_gps_source_label(raw_gps_src) if raw_gps_src else None
             
             props = {
                 "id": data.get("id"),
@@ -369,10 +423,16 @@ def export_geojson(
                 "street": data.get("street"),
                 "status": data.get("status"),
                 "safety_level": data.get("safety_level"),
-                "verdict": data.get("status"), # Mock verdict
+                "verdict": data.get("status"),
+                "risk_score": risk_score,
+                "risk_band": risk_band,
                 "crs": data.get("max_crs"),
                 "ground_clearance_m": ground_clearance_m,
                 "vni": data.get("vni"),
+                "gps_source": gps_src_label,
+                "is_mock": rec_mock,
+                "is_public": rec_public,
+                "verified": not (rec_mock or rec_public),
                 "created_at": format_pht_timestamp(data.get("created_at"), include_time=True)
             }
             
@@ -386,11 +446,15 @@ def export_geojson(
             }
             features.append(feature)
             
+        if eligible_before_gps == 0:
+            raise HTTPException(status_code=400, detail=NO_VERIFIED_RECORDS_MSG)
+            
         fc = {
             "type": "FeatureCollection",
             "features": features,
             "skipped_invalid": skipped_count,
-            "skipped_no_gps": skipped_no_gps
+            "skipped_no_gps": skipped_no_gps,
+            "contains_unverified": contains_unverified
         }
         
         return Response(
@@ -425,6 +489,7 @@ def export_csv(
     conn = get_connection()
     try:
         rows = []
+        allow_mock = bool(payload.include_mock)
         allow_invalid = (include_invalid or payload.include_invalid) and (user.role in ("admin", "lgu_engineer"))
         skipped_count = 0
         
@@ -443,7 +508,9 @@ def export_csv(
             elif data["status"] != "complete":
                 continue
                 
-            if data["is_mock"] and not payload.include_mock:
+            rec_mock = bool(data.get("is_mock"))
+            rec_public = bool(data.get("is_public"))
+            if (rec_mock or rec_public) and not allow_mock:
                 continue
                 
             wires = data.get("wires", [])
@@ -459,20 +526,25 @@ def export_csv(
                 "notes": sanitize_csv_cell(data.get("notes")),
                 "status": data.get("status"),
                 "safety_level": data.get("safety_level"),
-                "verdict": data.get("status"), # Mock verdict
+                "verdict": data.get("status"),
                 "crs": data.get("max_crs"),
                 "ground_clearance_m": ground_clearance_m,
                 "vni": data.get("vni"),
                 "created_at": format_pht_timestamp(data.get("created_at"), include_time=True),
                 "gps_lat": data.get("gps_lat"),
-                "gps_lng": data.get("gps_lng")
+                "gps_lng": data.get("gps_lng"),
+                "is_mock": rec_mock,
+                "is_public": rec_public,
+                "verified": not (rec_mock or rec_public)
             })
             
+        if not rows:
+            raise HTTPException(status_code=400, detail=NO_VERIFIED_RECORDS_MSG)
+            
         output = io.StringIO()
-        if rows:
-            writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(rows)
+        writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
             
         return Response(
             content=output.getvalue(),

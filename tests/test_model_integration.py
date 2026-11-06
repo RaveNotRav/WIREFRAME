@@ -283,3 +283,166 @@ def test_inference_settings_env_and_defaults(monkeypatch):
     assert params2["conf"] == 0.45
     assert params2["iou"] == 0.65
     assert params2["device"] == "cpu"
+
+
+def test_real_path_end_to_end_via_testclient_without_weights(tmp_path, monkeypatch, caplog, client_admin):
+    """End-to-end real-path test through TestClient with fake Ultralytics model:
+    verifies real converter + pipeline -> wires stored, class mapping (variants + unknown -> 'other'),
+    risk/safety computed, result API, dashboard counts (including 'other'), and PDF report generation.
+    """
+    import logging
+
+    monkeypatch.setenv("WIREFRAME_MOCK", "0")
+
+    # Model returns class name variants + an unknown class 'aerial_bundle_unknown' + pole variant
+    fake_model = _make_fake_model(
+        names_dict={
+            0: "Electric_Line",
+            1: "Telco",
+            2: "Optical-Fiber",
+            3: "Dead_Wire",
+            4: "aerial_bundle_unknown",
+            5: "Utility_Pole",
+        },
+        classes_list=[0, 1, 2, 3, 4, 5],
+        confs_list=[0.93, 0.88, 0.85, 0.91, 0.79, 0.96],
+    )
+    main_state.set_model(fake_model)
+    main_state.set_model_available(True)
+
+    from backend.utils.pipeline import _UNKNOWN_CLASSES_LOGGED
+    _UNKNOWN_CLASSES_LOGGED.discard("aerial_bundle_unknown")
+
+    # Create a textured image in tmp_path (never touches repo uploads/)
+    img_path = str(tmp_path / "e2e_real_test.jpg")
+    _create_test_image(img_path, width=800, height=600)
+
+    guest_token = "e2e_real_guest_token"
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO analyses
+           (filename, status, company, barangay, street, guest_session_id, is_mock, is_public)
+           VALUES ('e2e_real_test.jpg', 'queued', 'Meralco', 'San Antonio', 'Ayala Ave', ?, 0, 0)""",
+        (_hash_token(guest_token),),
+    )
+    analysis_id = cur.lastrowid
+    conn.commit()
+
+    with caplog.at_level(logging.WARNING):
+        execute_pipeline(analysis_id, img_path, conn, model=fake_model, batch_id=None)
+
+        # Verify unknown class was logged once with WARNING
+        unknown_logs = [r for r in caplog.records if "aerial_bundle_unknown" in r.message]
+        assert len(unknown_logs) == 1
+    conn.close()
+
+    client = client_admin
+    main_state.set_model(fake_model)
+    main_state.set_model_available(True)
+
+    # 1. Verify /api/health reports ready=True, model_loaded=True, model_status='loaded'
+    health_res = client.get("/api/health")
+    assert health_res.status_code == 200
+    hdata = health_res.json()
+    assert hdata["ready"] is True
+    assert hdata["model_loaded"] is True
+    assert hdata["model_status"] == "loaded"
+    assert hdata["mock_mode"] is False
+
+    # 2. Verify /api/analysis/{id}/result returns complete real-model analysis
+    res = client.get(f"/api/analysis/{analysis_id}/result")
+    assert res.status_code == 200
+    result_data = res.json()
+    assert result_data["status"] == "complete"
+    assert result_data["is_mock"] in (0, False)
+
+    # Verify risk & safety computed
+    from backend.utils.clearance_helpers import determine_overall_safety
+    assert result_data["risk_score"] is not None
+    assert result_data["risk_score"] > 0
+    assert result_data["crs_band"] in ("Low", "Moderate", "High", "Critical")
+    assert result_data["ground_clearance_status"] in ("above", "near", "below", "no_pole")
+    assert result_data["max_wire_crs"] is not None
+    assert result_data["max_wire_band"] in ("Low", "Moderate", "High", "Critical")
+
+    # Verify wires stored and mapped to 4 UI classes + 'other' (pole used for calibration, not stored as wire)
+    wires = result_data["wires"]
+    stored_classes = sorted(w["class_name"] for w in wires)
+    assert stored_classes == ["dead_abandoned", "fiber_optic", "other", "power_line", "telecom_cable"]
+    assert all(w["safety_level"] in ("Safe", "Caution", "Unsafe", "Critical") for w in wires)
+    overall_safety = determine_overall_safety(
+        [w["safety_level"] for w in wires],
+        max_wire_band=result_data["max_wire_band"],
+        analysis_band=result_data["crs_band"],
+        clearance_status=result_data["ground_clearance_status"],
+    )
+    assert overall_safety in ("Safe", "Caution", "Unsafe", "Critical")
+
+    # 3. Verify dashboard stats include all 4 canonical classes + 'other'
+    stats_res = client.get("/api/stats/dashboard")
+    assert stats_res.status_code == 200
+    dist = stats_res.json()["distribution"]
+    assert dist["power_line"] >= 1
+    assert dist["telecom_cable"] >= 1
+    assert dist["fiber_optic"] >= 1
+    assert dist["dead_abandoned"] >= 1
+    assert dist.get("other", 0) >= 1
+
+    # 4. Verify PDF report builds cleanly in real mode
+    pdf_res = client.get(f"/api/reports/{analysis_id}.pdf")
+    assert pdf_res.status_code == 200
+    assert pdf_res.headers["content-type"].startswith("application/pdf")
+    assert pdf_res.content.startswith(b"%PDF")
+
+    main_state.set_model(None)
+    main_state.set_model_available(False)
+
+
+def test_corrupt_or_missing_model_file_startup_and_batch_503(tmp_path, monkeypatch):
+    """If model file is missing or corrupt with mock off:
+    load_model_once returns None without raising, /api/health shows ready=False & model_status='not_loaded',
+    and both single and batch uploads return 503 with no stack traces or server paths.
+    """
+    monkeypatch.setenv("WIREFRAME_MOCK", "0")
+    main_state.set_model(None)
+    main_state.set_model_available(False)
+
+    # 1. Missing model file
+    missing_path = str(tmp_path / "does_not_exist.pt")
+    assert main_state.load_model_once(missing_path) is None
+    assert main_state.is_model_available() is False
+
+    # 2. Corrupt model file
+    corrupt_path = tmp_path / "corrupt_weights.pt"
+    corrupt_path.write_bytes(b"not a valid pytorch zip archive")
+    assert main_state.load_model_once(str(corrupt_path)) is None
+    assert main_state.is_model_available() is False
+
+    client = TestClient(main.app)
+    main_state.set_model(None)
+    main_state.set_model_available(False)
+
+    h_res = client.get("/api/health")
+    assert h_res.status_code == 200
+    h_json = h_res.json()
+    assert h_json["ready"] is False
+    assert h_json["model_loaded"] is False
+    assert h_json["model_status"] == "not_loaded"
+
+    img_byte_arr = io.BytesIO()
+    Image.new("RGB", (320, 240), color=(120, 120, 120)).save(img_byte_arr, format="JPEG")
+    img_bytes = img_byte_arr.getvalue()
+
+    batch_res = client.post(
+        "/api/batches",
+        data={"company": "Test Co", "barangay": "San Antonio", "street": "Perea St"},
+        files=[("files", ("test1.jpg", img_bytes, "image/jpeg"))],
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert batch_res.status_code == 503
+    detail = batch_res.json()["detail"]
+    assert "not loaded" in detail.lower()
+    assert "corrupt_weights.pt" not in detail
+    assert "Traceback" not in detail
+

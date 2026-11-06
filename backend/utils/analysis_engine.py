@@ -42,10 +42,20 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
     severities = []
     
     if seg_res.mask_available:
+        from backend.utils.pipeline import (
+            IGNORED_NON_WIRE_CLASSES,
+            WIRE_CLASSES,
+            resolve_class_name,
+        )
         for i, mask in enumerate(seg_res.masks):
             cls_idx = seg_res.classes[i]
-            cls_name = seg_res.names.get(cls_idx, "unknown")
+            raw_cls_name = seg_res.names.get(cls_idx, "unknown")
+            cls_name = resolve_class_name(raw_cls_name)
             conf = seg_res.confidences[i]
+            if cls_name == "pole" or cls_name in IGNORED_NON_WIRE_CLASSES or cls_name in ("drop", "ignore", "none"):
+                continue
+            if cls_name not in WIRE_CLASSES:
+                cls_name = "other"
             
             if cls_name == "dead_abandoned":
                 dead_wires += 1
@@ -103,10 +113,14 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
     # Let's see if there is a pole detection
     pole_bbox = None
     if seg_res.mask_available:
+        from backend.utils.pipeline import resolve_class_name
+        best_pole_conf = -1.0
         for i, cls_idx in enumerate(seg_res.classes):
-            if seg_res.names.get(cls_idx) == "pole":
-                pole_bbox = seg_res.boxes[i]
-                break
+            if resolve_class_name(seg_res.names.get(cls_idx, "")) == "pole":
+                conf = seg_res.confidences[i] if i < len(seg_res.confidences) else 0.0
+                if conf > best_pole_conf:
+                    best_pole_conf = conf
+                    pole_bbox = seg_res.boxes[i]
                 
     scale_res = calibrate_scale(pole_bbox=pole_bbox, image_height=prep.original_shape[0])
     

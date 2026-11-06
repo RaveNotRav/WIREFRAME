@@ -22,7 +22,11 @@ from backend.utils.cv.catenary import calculate_sag_metrics
 from backend.utils.cv.centerline import extract_centerline
 from backend.utils.cv.preprocess import validate_and_preprocess
 from backend.utils.cv.segment import segment_image
-from backend.utils.cv.types import normalize_class_name
+from backend.utils.cv.types import (
+    DEFAULT_CLASS_ALIASES,
+    IGNORED_NON_WIRE_CLASSES,
+    normalize_class_name,
+)
 from backend.utils.cv.vni import compute_vni
 from backend.utils.clearance_helpers import (
     evaluate_wire,
@@ -35,21 +39,42 @@ from backend.utils.uploads import extract_display_filename
 
 logger = logging.getLogger(__name__)
 
-WIRE_CLASSES = {"power_line", "telecom_cable", "fiber_optic", "dead_abandoned"}
+WIRE_CLASSES = {"power_line", "telecom_cable", "fiber_optic", "dead_abandoned", "other"}
 _UNKNOWN_CLASSES_LOGGED: set[str] = set()
 
 
+def get_effective_class_aliases(aliases: dict[str, str] | None = None) -> dict[str, str]:
+    """Merge default class aliases, config store aliases, and optional WIREFRAME_CLASS_ALIASES JSON env."""
+    import os
+    merged: dict[str, str] = dict(DEFAULT_CLASS_ALIASES)
+    cfg_aliases = aliases if aliases is not None else (get_setting("class_aliases", {}) or {})
+    if isinstance(cfg_aliases, dict):
+        merged.update(cfg_aliases)
+    env_aliases = os.getenv("WIREFRAME_CLASS_ALIASES")
+    if env_aliases:
+        try:
+            parsed = json.loads(env_aliases)
+            if isinstance(parsed, dict):
+                merged.update({str(k): str(v) for k, v in parsed.items()})
+        except Exception as e:
+            logger.warning("Invalid WIREFRAME_CLASS_ALIASES JSON (%s); ignoring env override.", e)
+    return merged
+
+
 def resolve_class_name(raw_name: str, aliases: dict[str, str] | None = None) -> str:
-    """Resolve raw model class name through class_aliases setting and normalize it."""
+    """Resolve raw model class name through default + configured aliases and normalize it."""
     if not raw_name:
         return "unknown"
+    effective = get_effective_class_aliases(aliases)
     key = str(raw_name).strip().lower()
-    if aliases:
-        if key in aliases:
-            return normalize_class_name(aliases[key])
-        if str(raw_name) in aliases:
-            return normalize_class_name(aliases[str(raw_name)])
-    return normalize_class_name(raw_name)
+    norm_key = normalize_class_name(raw_name)
+    if key in effective:
+        return normalize_class_name(effective[key])
+    if str(raw_name) in effective:
+        return normalize_class_name(effective[str(raw_name)])
+    if norm_key in effective:
+        return normalize_class_name(effective[norm_key])
+    return norm_key
 
 
 class PipelineState(str, enum.Enum):
@@ -172,14 +197,22 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                     if cls_name == "dead_abandoned":
                         dead_wires += 1
                     severities.append(get_severity(conf))
-                else:
+                elif cls_name in IGNORED_NON_WIRE_CLASSES or cls_name in ("drop", "ignore", "none"):
                     logger.debug("Skipping non-wire class: %s (confidence: %.2f)", cls_name, conf)
+                else:
                     if raw_cls_name not in _UNKNOWN_CLASSES_LOGGED:
                         _UNKNOWN_CLASSES_LOGGED.add(raw_cls_name)
                         logger.warning(
-                            "Unknown or unhandled model class '%s' (resolved: '%s', id: %s). Skipping detection.",
+                            "Unknown model class '%s' (resolved: '%s', id: %s). Grouping as 'other'.",
                             raw_cls_name, cls_name, cls_idx
                         )
+                    wires.append({
+                        "class_name": "other",
+                        "confidence": conf,
+                        "mask": seg_res.masks[i],
+                        "bbox": seg_res.boxes[i]
+                    })
+                    severities.append(get_severity(conf))
 
         if len(wires) == 0:
             transition_state(conn, analysis_id, PipelineState.NO_WIRES_DETECTED, "Zero wires found")

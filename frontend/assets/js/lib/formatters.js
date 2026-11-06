@@ -32,7 +32,8 @@ export function formatWireClass(className) {
         'telecom_cable': 'Telecom Cable',
         'fiber_optic': 'Fiber Optic',
         'dead_abandoned': 'Dead / Abandoned',
-        'pole': 'Utility Pole'
+        'pole': 'Utility Pole',
+        'other': 'Other'
     };
     if (known[className]) return known[className];
     return String(className)

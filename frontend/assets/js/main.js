@@ -25,7 +25,7 @@ export async function fetchApi(url, options = {}) {
         throw new Error("Unauthorized - Redirecting to login");
     }
 
-    if (response.status === 403) {
+    if (response.status === 403 && !options.preserveErrorDetail) {
         throw new Error("Forbidden: You do not have permission to access this resource.");
     }
 

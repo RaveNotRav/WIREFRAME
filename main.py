@@ -76,21 +76,8 @@ async def lifespan(app: FastAPI):
             logger.warning("WIREFRAME_MOCK=1 - running with mock detector")
             main_state.set_model_available(True)
         else:
-            if os.path.isfile(model_path):
-                try:
-                    from ultralytics import YOLO
-                    model = YOLO(model_path)
-                    main_state.set_model(model)
-                    main_state.set_model_available(True)
-                    logger.info("Model loaded: %s", model_path)
-                except Exception as exc:
-                    main_state.set_model(None)
-                    main_state.set_model_available(False)
-                    logger.error(f"Failed to load model: {exc}")
-            else:
-                main_state.set_model(None)
-                main_state.set_model_available(False)
-                logger.warning("Model file not found: %s. Uploads will return 503.", model_path)
+            main_state.set_model(None)
+            main_state.load_model_once(model_path)
 
     # Zombie recovery on startup
     # Mark stuck analyses as error

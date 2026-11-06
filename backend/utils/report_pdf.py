@@ -54,17 +54,15 @@ def format_gps_source_label(source) -> str:
 def safe_str(s):
     if s is None:
         return ""
-    # XML escape for Paragraphs
-    # Replace chars that might crash standard fonts. We use Helvetica which is standard but limited.
-    # A simple approach is to encode to ascii with 'ignore' or 'replace', but let's be more forgiving.
-    # reportlab will raise an error for characters not in its encoding.
-    try:
-        s = str(s).encode('latin-1', 'replace').decode('latin-1')
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Error escaping string '{s}': {e}")
-        s = str(s)
-    return xml.sax.saxutils.escape(s)
+    s_raw = str(s)
+    # XML escape for Paragraphs while preserving common Unicode dashes (e.g. em/en dash) supported by ReportLab Paragraph
+    out_chars = []
+    for ch in s_raw:
+        if ch in ("\u2014", "\u2013"):
+            out_chars.append(ch)
+        else:
+            out_chars.append(ch.encode("latin-1", "replace").decode("latin-1"))
+    return xml.sax.saxutils.escape("".join(out_chars))
 
 def process_image(img_path, max_dim=1600):
     """Open image, apply EXIF, downscale, save to a temp JPEG and return the path."""
@@ -92,19 +90,35 @@ def process_image(img_path, max_dim=1600):
         logging.getLogger(__name__).warning(f"Error getting aspect ratio: {e}")
         return None
 
-def draw_watermark(canvas, doc, is_mock, page_info):
+UNVERIFIED_BANNER_TEXT = "MOCK / UNVERIFIED DATA — NOT FOR OFFICIAL USE"
+
+
+def format_record_source_label(is_mock: bool = False, is_public: bool = False) -> str:
+    labels = []
+    if is_mock:
+        labels.append("Mock")
+    if is_public:
+        labels.append("Public tip")
+    return " / ".join(labels) if labels else "Verified"
+
+
+def draw_watermark(canvas, doc, is_unverified, page_info):
     canvas.saveState()
     # Page numbers
     canvas.setFont('Helvetica', 9)
     canvas.drawRightString(doc.pagesize[0] - 0.5 * inch, 0.5 * inch, f"Page {doc.page} of {page_info['total_pages']}")
     
-    # Watermark
-    if is_mock:
-        canvas.setFont('Helvetica-Bold', 60)
+    # Banner + Diagonal Watermark on every page when mock or public
+    if is_unverified:
+        canvas.setFont('Helvetica-Bold', 10)
+        canvas.setFillColorRGB(0.8, 0.0, 0.0, alpha=0.9)
+        canvas.drawCentredString(doc.pagesize[0] / 2, doc.pagesize[1] - 0.35 * inch, "MOCK / UNVERIFIED DATA - NOT FOR OFFICIAL USE")
+
+        canvas.setFont('Helvetica-Bold', 34)
         canvas.setFillColorRGB(1, 0, 0, alpha=0.15)
         canvas.translate(doc.pagesize[0]/2, doc.pagesize[1]/2)
         canvas.rotate(45)
-        canvas.drawCentredString(0, 0, "DEMO / MOCK RESULTS")
+        canvas.drawCentredString(0, 0, "MOCK / UNVERIFIED DATA")
     canvas.restoreState()
 
 def build_pdf(data: dict, output_path: str):
@@ -156,9 +170,9 @@ def build_pdf(data: dict, output_path: str):
     # Instead of custom canvas, a standard approach:
     # Actually reportlab canvas maker approach works.
     
-    is_mock = data.get('is_mock', False)
-    # We will just use standard simple doc template and a page template.
-    # For simplicity in this mock, let's use a simpler page template approach.
+    is_mock = bool(data.get('is_mock', False))
+    is_public = bool(data.get('is_public', False))
+    is_unverified = is_mock or is_public
 
     doc = SimpleDocTemplate(output_path, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     
@@ -172,13 +186,17 @@ def build_pdf(data: dict, output_path: str):
     
     # Header
     title_text = f"WIREFRAME Report: {safe_str(data.get('id', 'Unknown'))}"
-    if is_mock:
+    if is_unverified:
         title_text += " <font color='red'>[DEMO / MOCK RESULTS]</font>"
     elements.append(Paragraph(title_text, title_style))
+    if is_unverified:
+        elements.append(Paragraph(f"<font color='red'><b>{safe_str(UNVERIFIED_BANNER_TEXT)}</b></font>", normal_style))
     elements.append(Paragraph(f"Generated at: {format_pht_timestamp(datetime.now(timezone.utc))}", normal_style))
     elements.append(Spacer(1, 12))
     
     # Metadata
+    source_label = format_record_source_label(is_mock, is_public)
+    elements.append(Paragraph(f"<b>Record Source:</b> {safe_str(source_label)}", normal_style))
     elements.append(Paragraph(f"<b>Company:</b> {safe_str(data.get('company', '-'))}", normal_style))
     elements.append(Paragraph(f"<b>Barangay:</b> {safe_str(data.get('barangay', '-'))}", normal_style))
     elements.append(Paragraph(f"<b>Street:</b> {safe_str(data.get('street', '-'))}", normal_style))
@@ -290,9 +308,10 @@ def build_pdf(data: dict, output_path: str):
             ]]
             
             for w in wires:
+                w_conf = float(w.get('confidence') or 0.0)
                 table_data.append([
                     Paragraph(safe_str(w.get('class_name')), normal_style),
-                    Paragraph(safe_str(f"{w.get('confidence', 0):.2f}"), normal_style),
+                    Paragraph(safe_str(f"{w_conf:.2f}"), normal_style),
                     Paragraph(safe_str(w.get('crs')), normal_style),
                     Paragraph(safe_str(w.get('crs_band')), normal_style),
                     Paragraph(safe_str(w.get('sag_m')), normal_style),
@@ -328,7 +347,7 @@ def build_pdf(data: dict, output_path: str):
                 num_pages = len(self.pages)
                 for page in self.pages:
                     self.__dict__.update(page)
-                    draw_watermark(self, doc, is_mock, {'total_pages': num_pages})
+                    draw_watermark(self, doc, is_unverified, {'total_pages': num_pages})
                     super().showPage()
                 super().save()
                 
@@ -348,7 +367,12 @@ def build_summary_pdf(data: dict, output_path: str):
     """
     Builds the Summary PDF.
     """
-    is_mock = data.get('has_mock', False)
+    items_list = data.get('items', [])
+    is_unverified = bool(
+        data.get('has_unverified', False)
+        or data.get('has_mock', False)
+        or any(it.get('is_mock') or it.get('is_public') for it in items_list)
+    )
 
     doc = SimpleDocTemplate(output_path, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     styles = getSampleStyleSheet()
@@ -359,9 +383,11 @@ def build_summary_pdf(data: dict, output_path: str):
     elements = []
     
     title_text = "WIREFRAME Summary Report"
-    if is_mock:
+    if is_unverified:
         title_text += " <font color='red'>[DEMO / MOCK RESULTS]</font>"
     elements.append(Paragraph(title_text, title_style))
+    if is_unverified:
+        elements.append(Paragraph(f"<font color='red'><b>{safe_str(UNVERIFIED_BANNER_TEXT)}</b></font>", normal_style))
     elements.append(Paragraph(f"Generated at: {format_pht_timestamp(datetime.now(timezone.utc))}", normal_style))
     elements.append(Spacer(1, 12))
     
@@ -373,18 +399,24 @@ def build_summary_pdf(data: dict, output_path: str):
         Paragraph("<b>Company</b>", normal_style),
         Paragraph("<b>Location</b>", normal_style),
         Paragraph("<b>Date</b>", normal_style),
+        Paragraph("<b>Source</b>", normal_style),
         Paragraph("<b>VNI</b>", normal_style),
         Paragraph("<b>Max CRS</b>", normal_style),
         Paragraph("<b>Safety</b>", normal_style),
         Paragraph("<b>Action</b>", normal_style)
     ]]
     
-    for i, item in enumerate(data.get('items', [])):
+    for i, item in enumerate(items_list):
+        src_label = item.get('source_label') or format_record_source_label(
+            bool(item.get('is_mock')),
+            bool(item.get('is_public')),
+        )
         table_data.append([
             Paragraph(str(i+1), normal_style),
             Paragraph(safe_str(item.get('company', '-')), normal_style),
             Paragraph(safe_str(f"{item.get('barangay', '-')} / {item.get('street', '-')}"), normal_style),
             Paragraph(safe_str(item.get('date')), normal_style),
+            Paragraph(safe_str(src_label), normal_style),
             Paragraph(safe_str(item.get('vni')), normal_style),
             Paragraph(safe_str(item.get('max_crs')), normal_style),
             Paragraph(safe_str(item.get('safety_level')), normal_style),
@@ -392,7 +424,7 @@ def build_summary_pdf(data: dict, output_path: str):
         ])
         
     if len(table_data) > 1:
-        col_widths = [0.35 * inch, 0.85 * inch, 1.3 * inch, 0.8 * inch, 0.55 * inch, 0.65 * inch, 0.8 * inch, 2.2 * inch]
+        col_widths = [0.35 * inch, 0.8 * inch, 1.15 * inch, 0.75 * inch, 0.75 * inch, 0.45 * inch, 0.6 * inch, 0.7 * inch, 1.95 * inch]
         t = Table(table_data, colWidths=col_widths, repeatRows=1)
         t.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
@@ -421,7 +453,7 @@ def build_summary_pdf(data: dict, output_path: str):
             num_pages = len(self.pages)
             for page in self.pages:
                 self.__dict__.update(page)
-                draw_watermark(self, doc, is_mock, {'total_pages': num_pages})
+                draw_watermark(self, doc, is_unverified, {'total_pages': num_pages})
                 super().showPage()
             super().save()
 

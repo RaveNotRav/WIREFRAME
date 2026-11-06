@@ -159,7 +159,13 @@
     <script type="module">
         import { fetchApi, showToast } from '/assets/js/main.js';
         import { initTheme, toggleTheme } from '/assets/js/lib/theme.js';
-        import { loadHistoryData } from '/assets/js/loaders.js';
+        import {
+            loadHistoryData,
+            NO_VERIFIED_RECORDS_MSG,
+            resolveExportSelection,
+            formatSkippedNoGpsMessage,
+            requestHistoryExport
+        } from '/assets/js/loaders.js';
         import { formatDbTimestamp, escapeHtml } from '/assets/js/lib/formatters.js';
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -278,22 +284,29 @@
                 }
             });
 
+            function getSelectedOrFilteredIds() {
+                const checkedIds = Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => parseInt(cb.value, 10));
+                const includeMock = !!document.getElementById('toggle-mock').checked;
+                const isInvalidChecked = !!(document.getElementById('toggle-invalid')?.checked);
+                const canIncludeInvalid = !!(user && (user.role === 'admin' || user.role === 'lgu_engineer') && isInvalidChecked);
+                return resolveExportSelection(checkedIds, loadedItems, { includeMock, canIncludeInvalid });
+            }
+
             document.getElementById('btn-generate-summary').addEventListener('click', async () => {
-                const selectedIds = Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => parseInt(cb.value));
-                if (selectedIds.length === 0) return;
+                const includeMock = !!document.getElementById('toggle-mock').checked;
+                const includeInvalid = !!(document.getElementById('toggle-invalid')?.checked);
+                const selectedIds = getSelectedOrFilteredIds();
+                if (selectedIds.length === 0) {
+                    showToast(NO_VERIFIED_RECORDS_MSG, 'warning');
+                    return;
+                }
 
                 announce('Generating summary PDF, please wait...');
                 try {
-                    const res = await fetchApi('/api/reports/summary', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            analysis_ids: selectedIds,
-                            include_mock: document.getElementById('toggle-mock').checked,
-                            include_invalid: !!(document.getElementById('toggle-invalid')?.checked)
-                        })
+                    const res = await requestHistoryExport('/api/reports/summary', {
+                        analysis_ids: selectedIds,
+                        include_mock: includeMock,
+                        include_invalid: includeInvalid
                     });
 
                     const skipped = parseInt(res.headers.get('X-Skipped-Count') || '0', 10);
@@ -318,31 +331,31 @@
             });
 
             document.getElementById('btn-export-geojson').addEventListener('click', async () => {
-                const selectedIds = Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => parseInt(cb.value));
-                if (selectedIds.length === 0) return;
+                const includeMock = !!document.getElementById('toggle-mock').checked;
+                const includeInvalid = !!(document.getElementById('toggle-invalid')?.checked);
+                const selectedIds = getSelectedOrFilteredIds();
+                if (selectedIds.length === 0) {
+                    showToast(NO_VERIFIED_RECORDS_MSG, 'warning');
+                    return;
+                }
 
                 announce('Exporting GeoJSON, please wait...');
                 try {
-                    const res = await fetchApi('/api/reports/geojson', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            analysis_ids: selectedIds,
-                            include_mock: document.getElementById('toggle-mock').checked,
-                            include_invalid: !!(document.getElementById('toggle-invalid')?.checked)
-                        })
+                    const res = await requestHistoryExport('/api/reports/geojson', {
+                        analysis_ids: selectedIds,
+                        include_mock: includeMock,
+                        include_invalid: includeInvalid
                     });
 
                     const skippedInvalid = parseInt(res.headers.get('X-Skipped-Invalid') || '0', 10);
                     const skippedNoGps = parseInt(res.headers.get('X-Skipped-No-Gps') || '0', 10);
                     const skipped = parseInt(res.headers.get('X-Skipped-Count') || '0', 10);
-                    if (skippedInvalid > 0 && skippedNoGps > 0) {
-                        showToast(`${skippedInvalid} invalid and ${skippedNoGps} no-GPS submissions skipped`);
-                    } else if (skippedNoGps > 0) {
-                        showToast(`${skippedNoGps} submission(s) without GPS skipped`);
-                    } else if (skipped > 0) {
+                    if (skippedNoGps > 0) {
+                        showToast(formatSkippedNoGpsMessage(skippedNoGps));
+                    }
+                    if (skippedInvalid > 0) {
+                        showToast(`${skippedInvalid} invalid submissions skipped`);
+                    } else if (skippedNoGps === 0 && skipped > 0) {
                         showToast(`${skipped} invalid submissions skipped`);
                     }
 
@@ -362,21 +375,20 @@
             });
 
             document.getElementById('btn-export-csv').addEventListener('click', async () => {
-                const selectedIds = Array.from(document.querySelectorAll('.item-checkbox:checked')).map(cb => parseInt(cb.value));
-                if (selectedIds.length === 0) return;
+                const includeMock = !!document.getElementById('toggle-mock').checked;
+                const includeInvalid = !!(document.getElementById('toggle-invalid')?.checked);
+                const selectedIds = getSelectedOrFilteredIds();
+                if (selectedIds.length === 0) {
+                    showToast(NO_VERIFIED_RECORDS_MSG, 'warning');
+                    return;
+                }
 
                 announce('Exporting CSV, please wait...');
                 try {
-                    const res = await fetchApi('/api/reports/csv', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            analysis_ids: selectedIds,
-                            include_mock: document.getElementById('toggle-mock').checked,
-                            include_invalid: !!(document.getElementById('toggle-invalid')?.checked)
-                        })
+                    const res = await requestHistoryExport('/api/reports/csv', {
+                        analysis_ids: selectedIds,
+                        include_mock: includeMock,
+                        include_invalid: includeInvalid
                     });
 
                     const skipped = parseInt(res.headers.get('X-Skipped-Count') || '0', 10);
@@ -404,9 +416,11 @@
 
         function updateSummaryButtonState() {
             const anyChecked = document.querySelectorAll('.item-checkbox:checked').length > 0;
-            document.getElementById('btn-generate-summary').disabled = !anyChecked;
-            document.getElementById('btn-export-geojson').disabled = !anyChecked;
-            document.getElementById('btn-export-csv').disabled = !anyChecked;
+            const anyLoaded = Array.isArray(loadedItems) && loadedItems.length > 0;
+            const canExport = anyChecked || anyLoaded;
+            document.getElementById('btn-generate-summary').disabled = !canExport;
+            document.getElementById('btn-export-geojson').disabled = !canExport;
+            document.getElementById('btn-export-csv').disabled = !canExport;
         }
 
         async function loadHistory(page) {
@@ -438,6 +452,7 @@
 
                 loadedItems = data.items;
                 renderHistory(loadedItems);
+                updateSummaryButtonState();
                 
                 totalPages = Math.ceil(data.total / data.limit) || 1;
                 document.getElementById('page-info').textContent = `Page ${page} of ${totalPages}`;

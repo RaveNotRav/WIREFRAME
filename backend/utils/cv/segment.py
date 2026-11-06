@@ -7,17 +7,18 @@ Complexity:
 """
 
 import logging
+import os
+import threading
+from typing import Any
 
 import cv2
 import numpy as np
-
-import os
-from typing import Any
 
 from backend.config_store import get_setting
 from backend.utils.cv.types import SegmentationResult
 
 logger = logging.getLogger(__name__)
+_INFERENCE_LOCK = threading.Lock()
 
 
 def get_inference_params() -> dict[str, Any]:
@@ -73,10 +74,11 @@ def segment_image(rgb_image: np.ndarray, model, original_shape: tuple[int, int])
     if params["device"] and str(params["device"]).lower() != "auto":
         predict_kwargs["device"] = params["device"]
 
-    results = model(
-        bgr_image,
-        **predict_kwargs,
-    )
+    with _INFERENCE_LOCK:
+        results = model(
+            bgr_image,
+            **predict_kwargs,
+        )
     
     if not results:
         return SegmentationResult(mask_available=False)
@@ -86,7 +88,8 @@ def segment_image(rgb_image: np.ndarray, model, original_shape: tuple[int, int])
     boxes = r.boxes.xyxy.cpu().numpy().tolist() if r.boxes else []
     classes = r.boxes.cls.cpu().numpy().astype(int).tolist() if r.boxes else []
     confidences = r.boxes.conf.cpu().numpy().tolist() if r.boxes else []
-    names = r.names if hasattr(r, 'names') else {}
+    raw_names = getattr(r, "names", None) or getattr(model, "names", None) or {}
+    names = {int(k): str(v) for k, v in raw_names.items()} if isinstance(raw_names, dict) else {}
     
     # Check if masks exist
     if not r.masks:

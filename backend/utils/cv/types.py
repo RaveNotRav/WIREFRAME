@@ -6,8 +6,116 @@ import numpy as np
 
 
 def normalize_class_name(name: str) -> str:
-    """Normalize class name: strip, lowercase, spaces/hyphens to underscore."""
-    return str(name).strip().lower().replace(" ", "_").replace("-", "_")
+    """Normalize class name: strip, lowercase, spaces/hyphens/slashes to underscore."""
+    import re
+    cleaned = re.sub(r"[\s\-/]+", "_", str(name).strip().lower())
+    return re.sub(r"_+", "_", cleaned).strip("_")
+
+
+CANONICAL_WIRE_CLASSES = ("power_line", "telecom_cable", "fiber_optic", "dead_abandoned")
+
+DEFAULT_CLASS_ALIASES: dict[str, str] = {
+    # Power Line variants
+    "power_line": "power_line",
+    "power-line": "power_line",
+    "power line": "power_line",
+    "power": "power_line",
+    "powerline": "power_line",
+    "power_cable": "power_line",
+    "power_wire": "power_line",
+    "electric_line": "power_line",
+    "electric_wire": "power_line",
+    "electric_cable": "power_line",
+    "electrical_line": "power_line",
+    "electrical_wire": "power_line",
+    "electrical_cable": "power_line",
+    "high_voltage": "power_line",
+    "low_voltage": "power_line",
+    "primary_line": "power_line",
+    "secondary_line": "power_line",
+    "service_drop": "power_line",
+    "distribution_line": "power_line",
+    "overhead_power": "power_line",
+    "lv_line": "power_line",
+    "hv_line": "power_line",
+    # Telecom Cable variants
+    "telecom_cable": "telecom_cable",
+    "telecom-cable": "telecom_cable",
+    "telecom cable": "telecom_cable",
+    "telecom": "telecom_cable",
+    "telco": "telecom_cable",
+    "telco_cable": "telecom_cable",
+    "telecom_wire": "telecom_cable",
+    "telecom_line": "telecom_cable",
+    "communication_cable": "telecom_cable",
+    "communications_cable": "telecom_cable",
+    "comm_cable": "telecom_cable",
+    "coax": "telecom_cable",
+    "coaxial": "telecom_cable",
+    "coaxial_cable": "telecom_cable",
+    "catv": "telecom_cable",
+    "telephone": "telecom_cable",
+    "telephone_line": "telecom_cable",
+    "telephone_cable": "telecom_cable",
+    "copper_cable": "telecom_cable",
+    # Fiber Optic variants
+    "fiber_optic": "fiber_optic",
+    "fiber-optic": "fiber_optic",
+    "fiber optic": "fiber_optic",
+    "fiber": "fiber_optic",
+    "fibre": "fiber_optic",
+    "fiber_cable": "fiber_optic",
+    "fibre_cable": "fiber_optic",
+    "fiber_optic_cable": "fiber_optic",
+    "fibre_optic_cable": "fiber_optic",
+    "optical_fiber": "fiber_optic",
+    "optical_fibre": "fiber_optic",
+    "fo_cable": "fiber_optic",
+    "ftth": "fiber_optic",
+    # Dead / Abandoned variants
+    "dead_abandoned": "dead_abandoned",
+    "dead-abandoned": "dead_abandoned",
+    "dead abandoned": "dead_abandoned",
+    "dead": "dead_abandoned",
+    "dead_wire": "dead_abandoned",
+    "dead_cable": "dead_abandoned",
+    "dead_line": "dead_abandoned",
+    "abandoned": "dead_abandoned",
+    "abandoned_wire": "dead_abandoned",
+    "abandoned_cable": "dead_abandoned",
+    "abandoned_line": "dead_abandoned",
+    "unused_wire": "dead_abandoned",
+    "dangling_wire": "dead_abandoned",
+    "cut_wire": "dead_abandoned",
+    "broken_wire": "dead_abandoned",
+    "dropped_wire": "dead_abandoned",
+    # Utility Pole variants
+    "pole": "pole",
+    "utility_pole": "pole",
+    "pole_utility": "pole",
+    "electric_pole": "pole",
+    "power_pole": "pole",
+    "telecom_pole": "pole",
+    "wooden_pole": "pole",
+    "concrete_pole": "pole",
+    "utility_post": "pole",
+    "post": "pole",
+}
+
+IGNORED_NON_WIRE_CLASSES = {
+    "clock",
+    "traffic_light",
+    "person",
+    "car",
+    "truck",
+    "bus",
+    "bicycle",
+    "motorcycle",
+    "tree",
+    "building",
+    "sky",
+    "background",
+}
 
 
 @dataclass

@@ -61,10 +61,11 @@ async def get_dashboard_stats(
             "dead_abandoned": 0
         }
         for r in dist_rows:
-            if r["class_name"] in distribution:
-                distribution[r["class_name"]] = r["count"]
+            cls_key = r["class_name"]
+            if cls_key in distribution:
+                distribution[cls_key] += r["count"]
             else:
-                distribution[r["class_name"]] = r["count"] # Captures any other classes dynamically just in case
+                distribution["other"] = distribution.get("other", 0) + r["count"]
 
         # 3. Heatmap
         heatmap_query = f"""
