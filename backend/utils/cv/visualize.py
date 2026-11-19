@@ -195,8 +195,13 @@ def render_unified_overlay(
         p_color = CLASS_COLORS_RGB["pole"]
         px1, py1, px2, py2 = [int(round(v)) for v in pole_bbox[:4]]
         cv2.rectangle(canvas, (px1, py1), (px2, py2), p_color, 2)
-        p_conf_str = f" {int(round(pole_confidence * 100))}%" if (pole_confidence and pole_confidence > 0) else ""
-        _draw_badge(canvas, f"Pole{p_conf_str}", px1, max(24, py1), p_color)
+        if pole_confidence and pole_confidence >= 0.25:
+            p_badge = f"Pole {int(round(pole_confidence * 100))}%"
+        elif pole_confidence and pole_confidence > 0:
+            p_badge = "Pole (Detected)"
+        else:
+            p_badge = "Pole"
+        _draw_badge(canvas, p_badge, px1, max(24, py1), p_color)
         if py2 < h - 5:
             ground_y = py2
             pole_center_x = (px1 + px2) // 2
@@ -205,7 +210,7 @@ def render_unified_overlay(
             gx2 = min(w - 4, px2 + 45)
             _draw_dashed_line(canvas, (gx1, ground_y), (gx2, ground_y), p_color, thickness=2, dash_len=8)
 
-    # 4. Wires: mask contours, endpoint chords, centerline / catenary curves, sag vectors & badges
+    # 4. Wires: continuous smooth mask contours, endpoint chords, centerline / catenary curves, sag vectors & badges
     lowest_wire_pt: tuple[int, int] | None = None
     for idx, wire in enumerate(wires_list, start=1):
         cls_key = normalize_wire_class(wire.get("class_name", "other"))
@@ -215,18 +220,20 @@ def render_unified_overlay(
 
         wm = wire.get("mask")
         if wm is not None and wm.shape[:2] == (h, w):
-            contours, _ = cv2.findContours((wm > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # Smooth 1-2px gaps in rendered contour so thin diagonal wires render as continuous smooth ribbons
+            k_smooth = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            wm_smooth = cv2.morphologyEx((wm > 0).astype(np.uint8), cv2.MORPH_CLOSE, k_smooth)
+            contours, _ = cv2.findContours(wm_smooth, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 cv2.drawContours(canvas, contours, -1, w_color, 1, cv2.LINE_AA)
 
         w_bbox = wire.get("bbox")
         if w_bbox and len(w_bbox) >= 4:
             bx1, by1, bx2, by2 = [int(round(v)) for v in w_bbox[:4]]
-            cv2.rectangle(canvas, (bx1, by1), (bx2, by2), w_color, 1)
         else:
             bx1, by1 = 10, 25 * idx
 
-        polyline = _parse_polyline(wire.get("centerline_json") or wire.get("polyline"))
+        polyline = _parse_polyline(wire.get("centerline_json") or wire.get("polyline_json") or wire.get("polyline"))
         if len(polyline) > 1:
             pts_arr = np.round(polyline).astype(np.int32)
             # Endpoint chord (span reference line)

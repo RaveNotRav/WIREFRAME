@@ -1214,8 +1214,13 @@ export function updateTilesFromJson(analysis) {
             const color = getWireClassColor(wireClassName);
             const crsLabel = typeof w.crs === 'number' ? w.crs.toFixed(2) : '--';
             const sagLabel = typeof w.sag_m === 'number' ? `${w.sag_m.toFixed(2)}m` : '--';
+            const hasGroundRef = (typeof w.clearance_m === 'number') || (typeof analysis.ground_clearance_m === 'number') || (typeof w.sag_m === 'number');
+            const isZeroWithoutGroundRef = (typeof w.crs === 'number' && w.crs === 0) || !hasGroundRef && crsLabel === '0.00';
+            const clearanceCrsDisplay = isZeroWithoutGroundRef
+                ? 'Clearance CRS: N/A (No Ground Ref)'
+                : `Wire CRS: ${crsLabel}`;
             const paperCrsText = typeof w.crs_10 === 'number'
-                ? ` | Paper CRS: ${w.crs_10.toFixed(2)}/10${w.paper_risk_level ? ` (${escapeHtml(w.paper_risk_level)})` : ''}`
+                ? ` | Structural/Paper CRS: ${w.crs_10.toFixed(2)}/10${w.paper_risk_level ? ` (${escapeHtml(w.paper_risk_level)})` : ''}`
                 : '';
             const flagsText = (Array.isArray(w.flags) && w.flags.length > 0)
                 ? `<div style="font-size:0.75rem;color:var(--text-muted);">Flags: ${escapeHtml(w.flags.join(', '))}</div>`
@@ -1228,7 +1233,7 @@ export function updateTilesFromJson(analysis) {
                     ${flagsText}
                 </div>
                 <div style="text-align:right;">
-                    <div>Wire CRS: ${crsLabel}${paperCrsText}</div>
+                    <div>${clearanceCrsDisplay}${paperCrsText}</div>
                     <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${sagLabel}</div>
                 </div>
             `;

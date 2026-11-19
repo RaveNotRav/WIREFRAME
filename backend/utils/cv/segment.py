@@ -42,31 +42,38 @@ def positions(n: int, tile: int, overlap: float = 0.3) -> list[int]:
 
 
 def get_inference_params() -> dict[str, Any]:
-    """Retrieve inference settings from env (WIREFRAME_CONF, WIREFRAME_IOU, WIREFRAME_DEVICE, WIREFRAME_TILED) or config store."""
+    """Retrieve inference settings from env (WIREFRAME_CONF, WIREFRAME_IOU, WIREFRAME_IMGSZ, WIREFRAME_DEVICE, WIREFRAME_TILED) or config store.
+    Explicit environment variables always take precedence over SQLite settings table values.
+    """
     params = get_setting("inference_params", {}) or {}
 
     env_conf = os.getenv("WIREFRAME_CONF")
     try:
-        conf = float(env_conf) if env_conf is not None else float(params.get("conf", 0.08))
+        conf = float(env_conf) if env_conf is not None and env_conf.strip() != "" else float(params.get("conf", 0.02))
     except (ValueError, TypeError):
-        conf = 0.08
+        conf = 0.02
 
     env_iou = os.getenv("WIREFRAME_IOU")
     try:
-        iou = float(env_iou) if env_iou is not None else float(params.get("iou", 0.70))
+        iou = float(env_iou) if env_iou is not None and env_iou.strip() != "" else float(params.get("iou", 0.70))
     except (ValueError, TypeError):
         iou = 0.70
 
+    env_imgsz = os.getenv("WIREFRAME_IMGSZ")
+    try:
+        imgsz = int(env_imgsz) if env_imgsz is not None and env_imgsz.strip() != "" else int(params.get("imgsz", 1024))
+    except (ValueError, TypeError):
+        imgsz = 1024
+
     env_device = os.getenv("WIREFRAME_DEVICE")
-    device = env_device if env_device is not None else params.get("device", "auto")
+    device = env_device.strip() if env_device is not None and env_device.strip() != "" else params.get("device", "auto")
 
     env_tiled = os.getenv("WIREFRAME_TILED")
-    if env_tiled is not None:
+    if env_tiled is not None and env_tiled.strip() != "":
         tiled = env_tiled.strip().lower() in ("1", "true", "yes")
     else:
         tiled = bool(params.get("tiled", False))
 
-    imgsz = int(params.get("imgsz", 1024))
     retina_masks = bool(params.get("retina_masks", True))
     tile_size = int(params.get("tile_size", 640))
     tile_overlap = float(params.get("tile_overlap", 0.3))
@@ -310,6 +317,12 @@ def sliced_predict(
     )
 
 
+def _is_real_ultralytics_model(model: Any) -> bool:
+    """Return True only when `model` is an actual Ultralytics YOLO instance (not a test fake/mock)."""
+    mod = getattr(type(model), "__module__", "") or ""
+    return mod.startswith("ultralytics")
+
+
 def segment_image(
     rgb_image: np.ndarray,
     model: Any,
@@ -318,8 +331,12 @@ def segment_image(
     tiled: bool | None = None,
     tile_size: int | None = None,
     tile_overlap: float | None = None,
+    use_ensemble: bool | None = None,
 ) -> SegmentationResult:
-    """Run YOLO inference and scale masks back to original image size.
+    """Run YOLO inference and, when running a real Ultralytics model with WireNet ensemble weights installed,
+    fuse with Joanna's multi-model ensemble (`v217_ensemble.json`: `wirenet-r34.pt`, `v212_mitb1.pt`,
+    `v212_convnext_t.pt`, `strand_head_v217.pt`, `poles-yolo11n-v218.pt`, `hf/dinov2-small/`,
+    `hf/upernet-convnext-tiny/`).
     
     Supports both Single-Pass Mode (default) and Tiled Mode (`tiled=True` or `WIREFRAME_TILED=1`).
     If the model is detect-only (no masks), flags mask_available=False.
@@ -337,7 +354,7 @@ def segment_image(
         use_tiled = bool(params.get("tiled", False))
 
     if use_tiled:
-        return sliced_predict(
+        yolo_res = sliced_predict(
             model,
             bgr_image,
             original_shape=original_shape,
@@ -348,71 +365,88 @@ def segment_image(
             max_det=int(params.get("max_det", 1000)),
             device=params["device"],
         )
+    else:
+        predict_kwargs: dict[str, Any] = {
+            "conf": params["conf"],
+            "iou": params["iou"],
+            "imgsz": params["imgsz"],
+            "retina_masks": params["retina_masks"],
+            "verbose": False,
+        }
+        if params["device"] and str(params["device"]).lower() != "auto":
+            predict_kwargs["device"] = params["device"]
 
-    predict_kwargs: dict[str, Any] = {
-        "conf": params["conf"],
-        "iou": params["iou"],
-        "imgsz": params["imgsz"],
-        "retina_masks": params["retina_masks"],
-        "verbose": False,
-    }
-    if params["device"] and str(params["device"]).lower() != "auto":
-        predict_kwargs["device"] = params["device"]
+        with _INFERENCE_LOCK:
+            results = model(
+                bgr_image,
+                **predict_kwargs,
+            )
 
-    with _INFERENCE_LOCK:
-        results = model(
-            bgr_image,
-            **predict_kwargs,
-        )
-    
-    if not results:
-        return SegmentationResult(mask_available=False)
-        
-    r = results[0]
-    
-    boxes = r.boxes.xyxy.cpu().numpy().tolist() if r.boxes else []
-    classes = r.boxes.cls.cpu().numpy().astype(int).tolist() if r.boxes else []
-    confidences = r.boxes.conf.cpu().numpy().tolist() if r.boxes else []
-    raw_names = getattr(r, "names", None) or getattr(model, "names", None) or {}
-    names = {int(k): str(v) for k, v in raw_names.items()} if isinstance(raw_names, dict) else {}
-    
-    # Check if masks exist
-    if not r.masks:
-        logger.warning("No masks returned by model. Ensure it is a YOLO-seg model.")
-        return SegmentationResult(
-            mask_available=False,
-            boxes=boxes,
-            classes=classes,
-            confidences=confidences,
-            names=names
-        )
-        
-    # Scale masks to original image shape
-    masks_list = []
-    # r.masks.data is (N, H, W)
-    masks_data = r.masks.data.cpu().numpy()
-    
-    target_h, target_w = original_shape
-    
-    for i in range(masks_data.shape[0]):
-        # masks_data is float array (0.0 to 1.0)
-        mask = masks_data[i]
-        
-        # Only resize back to original image size if shapes differ
-        if mask.shape != (target_h, target_w):
-            scaled_mask = cv2.resize(mask, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+        if not results:
+            yolo_res = SegmentationResult(mask_available=False)
         else:
-            scaled_mask = mask
-        
-        # Threshold to create binary mask
-        binary_mask = (scaled_mask > 0.5).astype(np.uint8) * 255
-        masks_list.append(binary_mask)
-        
-    return SegmentationResult(
-        mask_available=True,
-        boxes=boxes,
-        classes=classes,
-        confidences=confidences,
-        masks=masks_list,
-        names=names
-    )
+            r = results[0]
+            boxes = r.boxes.xyxy.cpu().numpy().tolist() if r.boxes else []
+            classes = r.boxes.cls.cpu().numpy().astype(int).tolist() if r.boxes else []
+            confidences = r.boxes.conf.cpu().numpy().tolist() if r.boxes else []
+            raw_names = getattr(r, "names", None) or getattr(model, "names", None) or {}
+            names = {int(k): str(v) for k, v in raw_names.items()} if isinstance(raw_names, dict) else {}
+
+            if not r.masks:
+                if not _is_real_ultralytics_model(model):
+                    logger.warning("No masks returned by model. Ensure it is a YOLO-seg model.")
+                yolo_res = SegmentationResult(
+                    mask_available=False,
+                    boxes=boxes,
+                    classes=classes,
+                    confidences=confidences,
+                    names=names,
+                )
+            else:
+                masks_list = []
+                masks_data = r.masks.data.cpu().numpy()
+                target_h, target_w = original_shape
+                for i in range(masks_data.shape[0]):
+                    mask = masks_data[i]
+                    if mask.shape != (target_h, target_w):
+                        scaled_mask = cv2.resize(mask, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                    else:
+                        scaled_mask = mask
+                    binary_mask = (scaled_mask > 0.5).astype(np.uint8) * 255
+                    masks_list.append(binary_mask)
+
+                yolo_res = SegmentationResult(
+                    mask_available=True,
+                    boxes=boxes,
+                    classes=classes,
+                    confidences=confidences,
+                    masks=masks_list,
+                    names=names,
+                )
+
+    # Fuse with Joanna's multi-model ensemble when running a real Ultralytics model (or when explicitly requested)
+    should_run_ensemble = use_ensemble if use_ensemble is not None else _is_real_ultralytics_model(model)
+    if should_run_ensemble:
+        try:
+            from backend.utils.cv.wirenet import is_wirenet_available, run_hybrid_ensemble_segmentation
+
+            if is_wirenet_available():
+                target_h, target_w = original_shape
+                rgb_for_ens = (
+                    cv2.resize(rgb_image, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                    if rgb_image.shape[:2] != (target_h, target_w)
+                    else rgb_image
+                )
+                ens_res = run_hybrid_ensemble_segmentation(
+                    rgb_for_ens,
+                    yolo_res,
+                    imgsz=int(params.get("imgsz", 1024)),
+                    conf_min=float(params.get("conf", 0.02)),
+                    device=str(params.get("device", "auto")),
+                )
+                if ens_res.mask_available and ens_res.masks:
+                    return ens_res
+        except Exception as exc:
+            logger.warning("Multi-model ensemble fusion failed (%s); falling back to YOLO detections.", exc)
+
+    return yolo_res

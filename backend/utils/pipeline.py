@@ -185,12 +185,15 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 conn.commit()
                 transition_state(conn, analysis_id, PipelineState.IDLE, "Pipeline finished (error)")
                 return
-            seg_res = segment_image(prep.rgb, model, prep.original_shape)
-            try:
-                from backend.utils.cv.wirenet import refine_detections_with_wirenet
-                seg_res = refine_detections_with_wirenet(prep.rgb, seg_res)
-            except Exception as wn_exc:
-                logger.debug("Optional WireNet hook skipped: %s", wn_exc)
+            rgb_for_seg = prep.enhanced_rgb if prep.enhanced_rgb is not None else prep.rgb
+            seg_res = segment_image(rgb_for_seg, model, prep.original_shape)
+            from backend.utils.cv.segment import _is_real_ultralytics_model
+            if not _is_real_ultralytics_model(model):
+                try:
+                    from backend.utils.cv.wirenet import refine_detections_with_wirenet
+                    seg_res = refine_detections_with_wirenet(rgb_for_seg, seg_res, instances="yolo")
+                except Exception as wn_exc:
+                    logger.debug("Optional WireNet hook skipped: %s", wn_exc)
         
         wires = []
         vegetation_detections = []

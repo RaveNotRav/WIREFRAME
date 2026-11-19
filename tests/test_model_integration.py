@@ -265,14 +265,17 @@ def test_health_and_api_health_endpoints(monkeypatch):
 
 
 def test_inference_settings_env_and_defaults(monkeypatch):
-    """Inference params respect env overrides and fallback to defaults."""
+    """Inference params respect env overrides (including over stale SQLite settings) and fallback to defaults."""
+    from backend.config_store import get_setting, set_setting
+
     monkeypatch.delenv("WIREFRAME_CONF", raising=False)
     monkeypatch.delenv("WIREFRAME_IOU", raising=False)
+    monkeypatch.delenv("WIREFRAME_IMGSZ", raising=False)
     monkeypatch.delenv("WIREFRAME_DEVICE", raising=False)
     monkeypatch.delenv("WIREFRAME_TILED", raising=False)
 
     params = get_inference_params()
-    assert params["conf"] == 0.08
+    assert params["conf"] == 0.02
     assert params["iou"] == 0.70
     assert params["imgsz"] == 1024
     assert params["tiled"] is False
@@ -282,16 +285,31 @@ def test_inference_settings_env_and_defaults(monkeypatch):
     assert params["max_det"] == 1000
     assert params["device"] == "auto"
 
-    monkeypatch.setenv("WIREFRAME_CONF", "0.45")
+    # Simulate stale SQLite setting and verify explicit env vars always take precedence
+    set_setting(
+        "inference_params",
+        {"conf": 0.25, "iou": 0.45, "imgsz": 640, "tiled": True, "device": "cuda:0"},
+        updated_by="admin",
+    )
+    monkeypatch.setenv("WIREFRAME_CONF", "0.02")
     monkeypatch.setenv("WIREFRAME_IOU", "0.65")
+    monkeypatch.setenv("WIREFRAME_IMGSZ", "1024")
     monkeypatch.setenv("WIREFRAME_DEVICE", "cpu")
-    monkeypatch.setenv("WIREFRAME_TILED", "1")
+    monkeypatch.setenv("WIREFRAME_TILED", "0")
 
     params2 = get_inference_params()
-    assert params2["conf"] == 0.45
+    assert params2["conf"] == 0.02
     assert params2["iou"] == 0.65
+    assert params2["imgsz"] == 1024
     assert params2["device"] == "cpu"
-    assert params2["tiled"] is True
+    assert params2["tiled"] is False
+
+    # Also verify get_setting("inference_params") itself reflects the env overrides
+    store_params = get_setting("inference_params")
+    assert store_params["conf"] == 0.02
+    assert store_params["iou"] == 0.65
+    assert store_params["imgsz"] == 1024
+    assert store_params["tiled"] is False
 
 
 def test_real_path_end_to_end_via_testclient_without_weights(tmp_path, monkeypatch, caplog, client_admin):
@@ -877,6 +895,54 @@ def test_render_unified_overlay_and_class_counts():
     assert rendered.dtype == np.uint8
     # Image must have been modified with colored masks, contours, pole box, and badges
     assert not np.array_equal(rendered, img)
+
+
+def test_real_multimodel_ensemble_on_dataset4_image(monkeypatch):
+    """Run real multi-model ensemble inference (YOLO11m-seg + WireNet R34/MiT-B1/ConvNeXt-T + StrandHead/DINOv2
+    + PoleDetector + ADE20K SceneParser) on `uploads/2bd8e9c8_dataset4.jpg` and verify wires and poles are detected.
+    """
+    from pathlib import Path
+    import pytest
+    from backend.utils.cv.preprocess import validate_and_preprocess
+    from backend.utils.cv.segment import segment_image
+    from backend.utils.cv.wirenet import is_wirenet_available
+
+    model_pt = Path("backend/models/wireframe_seg.pt")
+    if not model_pt.is_file() or not is_wirenet_available():
+        pytest.skip("Real model weights not installed on disk")
+
+    img_path = Path("uploads/2bd8e9c8_dataset4.jpg")
+    if not img_path.is_file():
+        candidates = list(Path("uploads").glob("*dataset*.jpg")) or list(
+            Path("datasets/wireframes_v1/train/images").glob("*.jpg")
+        )
+        if not candidates:
+            pytest.skip("No sample dataset image found")
+        img_path = candidates[0]
+
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        pytest.skip("ultralytics not installed")
+
+    monkeypatch.setenv("WIREFRAME_MOCK", "0")
+    prep = validate_and_preprocess(str(img_path))
+    assert prep.quality_ok
+
+    model = YOLO(str(model_pt))
+    rgb_in = prep.enhanced_rgb if prep.enhanced_rgb is not None else prep.rgb
+    seg_res = segment_image(rgb_in, model, prep.original_shape)
+
+    assert seg_res.mask_available is True
+    detected_classes = [seg_res.names[c] for c in seg_res.classes]
+    wire_classes = [
+        c for c in detected_classes if c in ("power_distribution_line", "communication_cable", "dead_wire")
+    ]
+    pole_classes = [c for c in detected_classes if c == "pole"]
+
+    assert len(wire_classes) >= 1, f"Expected >= 1 wire detected, got {detected_classes}"
+    assert len(pole_classes) >= 1, f"Expected >= 1 pole detected, got {detected_classes}"
+
 
 
 

@@ -162,7 +162,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "plants": "vegetation",
     },
     "inference_params": {
-        "conf": 0.08,
+        "conf": 0.02,
         "iou": 0.70,
         "imgsz": 1024,
         "retina_masks": True,
@@ -211,15 +211,27 @@ def _seed_defaults() -> None:
     if _conn is None:
         raise RuntimeError("Config store not initialized")
     for key, value in DEFAULT_SETTINGS.items():
-        exists = _conn.execute(
-            "SELECT 1 FROM settings WHERE key = ?", (key,)
+        row = _conn.execute(
+            "SELECT value_json, updated_by FROM settings WHERE key = ?", (key,)
         ).fetchone()
-        if exists is None:
+        if row is None:
             _conn.execute(
                 "INSERT INTO settings (key, value_json, updated_by) VALUES (?, ?, ?)",
                 (key, json.dumps(value), "system"),
             )
             logger.debug("Seeded default: %s", key)
+        elif key == "inference_params" and row["updated_by"] == "system":
+            # Migrate stale system-seeded defaults (e.g. conf=0.25/0.08, imgsz=640, tiled=True)
+            try:
+                existing = json.loads(row["value_json"]) if row["value_json"] else {}
+            except Exception:
+                existing = {}
+            if isinstance(existing, dict) and existing != value:
+                _conn.execute(
+                    "UPDATE settings SET value_json = ?, updated_at = datetime('now') WHERE key = ?",
+                    (json.dumps(value), key),
+                )
+                logger.info("Migrated system default for setting: %s", key)
     _conn.commit()
 
 
@@ -231,10 +243,50 @@ def _load_cache() -> None:
         _cache[row["key"]] = json.loads(row["value_json"])
 
 
+def _apply_env_overrides(key: str, value: Any) -> Any:
+    """Apply explicit environment variable overrides so env vars always take precedence over SQLite settings."""
+    if key != "inference_params" or not isinstance(value, dict):
+        return value
+    import os
+    merged = dict(DEFAULT_SETTINGS["inference_params"])
+    merged.update(value)
+
+    env_conf = os.getenv("WIREFRAME_CONF")
+    if env_conf is not None and env_conf.strip() != "":
+        try:
+            merged["conf"] = float(env_conf)
+        except (ValueError, TypeError):
+            pass
+
+    env_iou = os.getenv("WIREFRAME_IOU")
+    if env_iou is not None and env_iou.strip() != "":
+        try:
+            merged["iou"] = float(env_iou)
+        except (ValueError, TypeError):
+            pass
+
+    env_imgsz = os.getenv("WIREFRAME_IMGSZ")
+    if env_imgsz is not None and env_imgsz.strip() != "":
+        try:
+            merged["imgsz"] = int(env_imgsz)
+        except (ValueError, TypeError):
+            pass
+
+    env_device = os.getenv("WIREFRAME_DEVICE")
+    if env_device is not None and env_device.strip() != "":
+        merged["device"] = env_device.strip()
+
+    env_tiled = os.getenv("WIREFRAME_TILED")
+    if env_tiled is not None and env_tiled.strip() != "":
+        merged["tiled"] = env_tiled.strip().lower() in ("1", "true", "yes")
+
+    return merged
+
+
 def get_setting(key: str, default: Any = None) -> Any:
     """Get a setting value from cache, falling back to DB then defaults."""
     if key in _cache:
-        return _cache[key]
+        return _apply_env_overrides(key, _cache[key])
     if _conn is not None:
         row = _conn.execute(
             "SELECT value_json FROM settings WHERE key = ?", (key,)
@@ -242,8 +294,8 @@ def get_setting(key: str, default: Any = None) -> Any:
         if row is not None:
             value = json.loads(row["value_json"])
             _cache[key] = value
-            return value
-    return DEFAULT_SETTINGS.get(key, default)
+            return _apply_env_overrides(key, value)
+    return _apply_env_overrides(key, DEFAULT_SETTINGS.get(key, default))
 
 
 def set_setting(key: str, value: Any, updated_by: str = "system") -> None:
