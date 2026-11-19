@@ -17,15 +17,22 @@ from backend.formulas import (
     compute_safety_level,
     get_severity,
 )
-from backend.utils.cv.calibration import calibrate_scale, estimate_clearance
+from backend.utils.cv.calibration import (
+    bridge_across_poles,
+    calibrate_scale,
+    detect_pole_hough_fallback,
+    estimate_clearance,
+)
 from backend.utils.cv.catenary import calculate_sag_metrics
 from backend.utils.cv.centerline import extract_centerline
 from backend.utils.cv.preprocess import validate_and_preprocess
 from backend.utils.cv.segment import segment_image
 from backend.utils.cv.types import (
+    CANONICAL_CONTEXT_CLASSES,
     DEFAULT_CLASS_ALIASES,
     IGNORED_NON_WIRE_CLASSES,
     normalize_class_name,
+    normalize_wire_class,
 )
 from backend.utils.cv.vni import compute_vni
 from backend.utils.clearance_helpers import (
@@ -39,7 +46,16 @@ from backend.utils.uploads import extract_display_filename
 
 logger = logging.getLogger(__name__)
 
-WIRE_CLASSES = {"power_line", "telecom_cable", "fiber_optic", "dead_abandoned", "other"}
+WIRE_CLASSES = {
+    "power_distribution_line",
+    "communication_cable",
+    "dead_wire",
+    "power_line",
+    "telecom_cable",
+    "fiber_optic",
+    "dead_abandoned",
+    "other",
+}
 _UNKNOWN_CLASSES_LOGGED: set[str] = set()
 
 
@@ -62,19 +78,20 @@ def get_effective_class_aliases(aliases: dict[str, str] | None = None) -> dict[s
 
 
 def resolve_class_name(raw_name: str, aliases: dict[str, str] | None = None) -> str:
-    """Resolve raw model class name through default + configured aliases and normalize it."""
+    """Resolve raw model class name through default + configured aliases and normalize to canonical class."""
     if not raw_name:
         return "unknown"
     effective = get_effective_class_aliases(aliases)
     key = str(raw_name).strip().lower()
     norm_key = normalize_class_name(raw_name)
+    resolved = norm_key
     if key in effective:
-        return normalize_class_name(effective[key])
-    if str(raw_name) in effective:
-        return normalize_class_name(effective[str(raw_name)])
-    if norm_key in effective:
-        return normalize_class_name(effective[norm_key])
-    return norm_key
+        resolved = normalize_class_name(effective[key])
+    elif str(raw_name) in effective:
+        resolved = normalize_class_name(effective[str(raw_name)])
+    elif norm_key in effective:
+        resolved = normalize_class_name(effective[norm_key])
+    return normalize_wire_class(resolved)
 
 
 class PipelineState(str, enum.Enum):
@@ -169,11 +186,18 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 transition_state(conn, analysis_id, PipelineState.IDLE, "Pipeline finished (error)")
                 return
             seg_res = segment_image(prep.rgb, model, prep.original_shape)
+            try:
+                from backend.utils.cv.wirenet import refine_detections_with_wirenet
+                seg_res = refine_detections_with_wirenet(prep.rgb, seg_res)
+            except Exception as wn_exc:
+                logger.debug("Optional WireNet hook skipped: %s", wn_exc)
         
         wires = []
+        vegetation_detections = []
         dead_wires = 0
         severities = []
         pole_bbox = None
+        pole_masks: list[Any] = []
         best_pole_conf = -1.0
         
         aliases = get_setting("class_aliases", {}) or {}
@@ -184,17 +208,27 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 conf = seg_res.confidences[i] if i < len(seg_res.confidences) else 0.0
 
                 if cls_name == "pole":
+                    if i < len(seg_res.masks) and seg_res.masks[i] is not None:
+                        pole_masks.append(seg_res.masks[i])
                     if conf > best_pole_conf:
                         best_pole_conf = conf
                         pole_bbox = seg_res.boxes[i]
-                elif cls_name in WIRE_CLASSES:
-                    wires.append({
-                        "class_name": cls_name,
+                elif cls_name in CANONICAL_CONTEXT_CLASSES or cls_name == "vegetation":
+                    vegetation_detections.append({
+                        "class_name": "vegetation",
                         "confidence": conf,
                         "mask": seg_res.masks[i],
                         "bbox": seg_res.boxes[i]
                     })
-                    if cls_name == "dead_abandoned":
+                elif cls_name in WIRE_CLASSES:
+                    canon_cls = normalize_wire_class(cls_name)
+                    wires.append({
+                        "class_name": canon_cls,
+                        "confidence": conf,
+                        "mask": seg_res.masks[i],
+                        "bbox": seg_res.boxes[i]
+                    })
+                    if canon_cls in ("dead_wire", "dead_abandoned"):
                         dead_wires += 1
                     severities.append(get_severity(conf))
                 elif cls_name in IGNORED_NON_WIRE_CLASSES or cls_name in ("drop", "ignore", "none"):
@@ -216,39 +250,108 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
 
         if len(wires) == 0:
             transition_state(conn, analysis_id, PipelineState.NO_WIRES_DETECTED, "Zero wires found")
-            conn.execute("UPDATE analyses SET status = 'no_wires' WHERE id = ?", (analysis_id,))
+            import cv2 as _cv2_nw
+            from pathlib import Path as _Path_nw
+            base_outputs_nw = _Path_nw("outputs").resolve()
+            base_outputs_nw.mkdir(exist_ok=True)
+            vni_res_nw = compute_vni(prep.gray)
+            spectrum_path_nw = ""
+            if vni_res_nw.spectrum_png:
+                spec_file_nw = base_outputs_nw / f"analysis_{analysis_id}_spectrum.png"
+                with open(spec_file_nw, "wb") as f:
+                    f.write(vni_res_nw.spectrum_png)
+                spectrum_path_nw = str(spec_file_nw)
+            annotated_img_nw = prep.rgb.copy()
+            if pole_bbox:
+                px1, py1, px2, py2 = [int(v) for v in pole_bbox]
+                _cv2_nw.rectangle(annotated_img_nw, (px1, py1), (px2, py2), (255, 0, 0), 2)
+                _cv2_nw.putText(annotated_img_nw, "Pole", (px1, py1 - 10), _cv2_nw.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
+            for veg in vegetation_detections:
+                vx1, vy1, vx2, vy2 = [int(v) for v in veg["bbox"]]
+                _cv2_nw.rectangle(annotated_img_nw, (vx1, vy1), (vx2, vy2), (16, 185, 129), 2)
+                _cv2_nw.putText(annotated_img_nw, "Vegetation", (vx1, max(15, vy1 - 10)), _cv2_nw.FONT_HERSHEY_SIMPLEX, 0.8, (16, 185, 129), 2)
+            annotated_file_nw = base_outputs_nw / f"analysis_{analysis_id}_annotated.jpg"
+            _cv2_nw.imwrite(str(annotated_file_nw), _cv2_nw.cvtColor(annotated_img_nw, _cv2_nw.COLOR_RGB2BGR))
+            annotated_path_nw = str(annotated_file_nw)
+            conn.execute(
+                "UPDATE analyses SET status = 'no_wires', vni = ?, spectrum_path = ?, annotated_path = ?, width = ?, height = ? WHERE id = ?",
+                (vni_res_nw.vni, spectrum_path_nw, annotated_path_nw, prep.original_shape[1], prep.original_shape[0], analysis_id),
+            )
             conn.commit()
             transition_state(conn, analysis_id, PipelineState.GENERATING_REPORT, "Creating empty report")
             # In a real app we'd build a report PDF here
             transition_state(conn, analysis_id, PipelineState.IDLE, "Pipeline finished (no wires)")
             return
-            
+
+        # Optional classical Hough pole fallback in real mode when 4-class model outputs no pole class
+        import os as _os
+        if pole_bbox is None and not is_mock_mode():
+            hough_enabled = (
+                _os.getenv("WIREFRAME_HOUGH_POLE_FALLBACK", "0").strip().lower() in ("1", "true", "yes")
+                or bool(get_setting("hough_pole_fallback", False))
+            )
+            if hough_enabled and prep.rgb is not None:
+                import cv2 as _cv2
+                bgr_for_pole = _cv2.cvtColor(prep.rgb, _cv2.COLOR_RGB2BGR)
+                pole_bbox = detect_pole_hough_fallback(bgr_for_pole)
+                if pole_bbox is not None and not pole_masks:
+                    ph, pw = prep.original_shape[:2]
+                    px1, py1, px2, py2 = [max(0, int(round(v))) for v in pole_bbox[:4]]
+                    pm = _np_zeros = None
+                    import numpy as _np
+                    pm = _np.zeros((ph, pw), dtype=_np.uint8)
+                    pm[min(ph, py1):min(ph, py2), min(pw, px1):min(pw, px2)] = 255
+                    pole_masks.append(pm)
+
         if check_cancel_requested(conn, batch_id):
             raise InterruptedError("Cancelled before Analyzing")
             
         transition_state(conn, analysis_id, PipelineState.ANALYZING, "Computing VNI and extracting centerline geometry")
         vni_res = compute_vni(prep.gray)
         
+        bridge_poles_enabled = (
+            _os.getenv("WIREFRAME_BRIDGE_POLES", "0").strip().lower() in ("1", "true", "yes")
+            or bool(get_setting("bridge_across_poles", False))
+        )
         analyzed_wires = []
         for w in wires:
-            cline = extract_centerline(w["mask"], w["bbox"])
+            w_mask = w["mask"]
+            if bridge_poles_enabled and pole_masks and w_mask is not None:
+                w_mask = bridge_across_poles(w_mask, pole_masks)
+            cline = extract_centerline(w_mask, w["bbox"])
             if cline.is_valid:
                 cat = calculate_sag_metrics(cline.polyline)
                 w["catenary"] = cat
+                w["centerline_flags"] = list(cline.flags)
                 w["lowest_y"] = get_lowest_y(cline.polyline)
                 w["centerline_json"] = str(cline.polyline)
-                w["params_json"] = json.dumps({"a": cat.fitted_a, "residual": cat.residual})
+                w["params_json"] = json.dumps({
+                    "a": cat.fitted_a,
+                    "residual": cat.residual,
+                    "fit_failed": cat.fit_failed,
+                    "perp_sag_px": cat.perp_sag_px,
+                    "perp_sag_ratio": cat.perp_sag_ratio,
+                    "flags": list(dict.fromkeys(list(cline.flags) + list(cat.flags))),
+                })
                 analyzed_wires.append(w)
                 
         if check_cancel_requested(conn, batch_id):
             raise InterruptedError("Cancelled before ComputingRisk")
             
         transition_state(conn, analysis_id, PipelineState.COMPUTING_RISK, "Scoring CRS, scaling sag, assigning safety")
-        from backend.formulas import compute_catenary_risk
+        from backend.formulas import compute_allowable_sag, compute_catenary_risk, compute_paper_crs
         raw_weights = get_setting("class_weights", {}) or {}
-        weights = {normalize_class_name(k): v for k, v in raw_weights.items()}
+        weights: dict[str, float] = {}
+        for k, v in raw_weights.items():
+            norm_k = normalize_class_name(k)
+            weights[norm_k] = v
+            weights[normalize_wire_class(norm_k)] = v
         raw_pec = get_setting("pec_min_clearance_by_class", {}) or {}
-        pec_min_map = {normalize_class_name(k): v for k, v in raw_pec.items()}
+        pec_min_map: dict[str, float] = {}
+        for k, v in raw_pec.items():
+            norm_k = normalize_class_name(k)
+            pec_min_map[norm_k] = v
+            pec_min_map[normalize_wire_class(norm_k)] = v
         
         scale_res = calibrate_scale(pole_bbox=pole_bbox, image_height=prep.original_shape[0])
         
@@ -257,14 +360,29 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         for w in analyzed_wires:
             cat = w["catenary"]
             crs_raw = compute_catenary_risk(cat.sag_to_span, cat.residual)
-            cls_key = normalize_class_name(w["class_name"])
-            cls_weight = weights.get(cls_key, 1.0)
+            cls_key = normalize_wire_class(w["class_name"])
+            cls_weight = weights.get(cls_key, weights.get(normalize_class_name(w["class_name"]), 1.0))
             crs_weighted = max(0.0, min(100.0, crs_raw * cls_weight))
             max_crs = max(max_crs, crs_weighted)
             
+            span_m_est = (cat.span_px * scale_res.meters_per_px) if (scale_res.meters_per_px and cat.span_px) else None
+            delta_lim, sag_flags = compute_allowable_sag(cls_key, span_m=span_m_est)
+            crs_10, paper_risk_level = compute_paper_crs(
+                cat.sag_to_span,
+                delta_lim=delta_lim,
+                class_weight=cls_weight,
+                fit_failed=cat.fit_failed,
+            )
+
             params = parse_params_json(w["params_json"])
+            combined_flags = list(dict.fromkeys(list(params.get("flags", [])) + list(sag_flags)))
+            params["crs_10"] = crs_10
+            params["paper_risk_level"] = paper_risk_level
+            params["delta_lim"] = delta_lim
+            params["flags"] = combined_flags
+
             ew = evaluate_wire(
-                class_name=w["class_name"],
+                class_name=cls_key,
                 confidence=w["confidence"],
                 sag_px=cat.sag_px,
                 span_px=cat.span_px,
@@ -314,6 +432,11 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             px1, py1, px2, py2 = [int(v) for v in pole_bbox]
             cv2.rectangle(annotated_img, (px1, py1), (px2, py2), (255, 0, 0), 2)
             cv2.putText(annotated_img, "Pole", (px1, py1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
+
+        for veg in vegetation_detections:
+            vx1, vy1, vx2, vy2 = [int(v) for v in veg["bbox"]]
+            cv2.rectangle(annotated_img, (vx1, vy1), (vx2, vy2), (16, 185, 129), 2)
+            cv2.putText(annotated_img, "Vegetation", (vx1, max(15, vy1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (16, 185, 129), 2)
             
         for w in analyzed_wires:
             bx1, by1, bx2, by2 = [int(v) for v in w["bbox"]]

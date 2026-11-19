@@ -1,16 +1,52 @@
 """Pure computation functions for WIREFRAME risk assessment.
 
 All thresholds read from config_store.
-    TODO(THESIS-3.5) - formula constants from thesis Section 3.5
-    TODO(VERIFY-WITH-ADVISER) - values needing adviser confirmation
+Includes both the 0-100 UI gauge formulas and the thesis-paper-conformant
+Equation 9 (allowable sag), Equation 10 (0-10 CRS), and Equation 11 (MSPI + 66-point sensitivity grid).
 """
 
+from __future__ import annotations
+
 import logging
+import math
 from typing import Any
 
+import numpy as np
+from scipy.optimize import brentq
+from scipy.stats import spearmanr
+
 from backend.config_store import get_setting
+from backend.utils.cv.types import normalize_class_name, normalize_wire_class
 
 logger = logging.getLogger(__name__)
+
+# Illustrative conductor reference properties (Section 3.6.5 / Table 3.8)
+_DEFAULT_CONDUCTORS: dict[str, dict[str, float]] = {
+    "power_distribution_line": {
+        "diameter_m": 0.0101,
+        "area_m2": 6.32e-5,
+        "weight_n_per_m": 2.11,
+        "elastic_modulus_pa": 6.8e10,
+        "thermal_expansion_per_c": 1.91e-5,
+        "reference_tension_n": 3600.0,
+    },
+    "communication_cable": {
+        "diameter_m": 0.0140,
+        "area_m2": 1.10e-4,
+        "weight_n_per_m": 1.47,
+        "elastic_modulus_pa": 1.2e10,
+        "thermal_expansion_per_c": 2.0e-5,
+        "reference_tension_n": 2200.0,
+    },
+    "dead_wire": {
+        "diameter_m": 0.0080,
+        "area_m2": 5.0e-5,
+        "weight_n_per_m": 1.20,
+        "elastic_modulus_pa": 1.2e10,
+        "thermal_expansion_per_c": 2.0e-5,
+        "reference_tension_n": 1500.0,
+    },
+}
 
 
 def compute_catenary_risk(sag_to_span: float, residual: float) -> float:
@@ -19,8 +55,6 @@ def compute_catenary_risk(sag_to_span: float, residual: float) -> float:
     CRS = clip(sag_term + residual_penalty, 0, 100)
       sag_term     = clip((sag_to_span - offset) / scale * 100, 0, 100)
       residual_pen = clip((residual - r_offset) * r_gain, 0, penalty_cap)
-
-    TODO(THESIS-3.5): Verify constants with adviser.
     """
     p = get_setting("crs_params")
     sag_term = max(0.0, min(100.0,
@@ -31,6 +65,283 @@ def compute_catenary_risk(sag_to_span: float, residual: float) -> float:
     logger.debug("CRS: sag_to_span=%.4f term=%.2f residual=%.4f pen=%.2f -> %.2f",
                  sag_to_span, sag_term, residual, residual_penalty, crs)
     return crs
+
+
+def _change_of_state_tension(
+    h1: float,
+    w1: float,
+    t1: float,
+    w2: float,
+    t2: float,
+    span: float,
+    e_mod: float,
+    area: float,
+    alpha: float,
+) -> float:
+    """Positive real root H2 of the cubic change-of-state equation (Kiessling et al., 2003)."""
+    ea = e_mod * area
+    k = h1 - ea * (w1**2) * (span**2) / (24.0 * (h1**2)) - ea * alpha * (t2 - t1)
+    rhs = ea * (w2**2) * (span**2) / 24.0
+
+    def f(h: float) -> float:
+        return h * h * (h - k) - rhs
+
+    lo = max(k, 0.0)
+    hi = max(lo, 1.0)
+    while f(hi) < 0:
+        hi *= 2.0
+        if hi > 1e12:
+            raise ValueError("change-of-state root not bracketed")
+    return float(brentq(f, lo if f(lo) < 0 else 1e-9, hi, xtol=1e-9, rtol=1e-12))
+
+
+def compute_allowable_sag(
+    class_name: str,
+    span_m: float | None = None,
+    context: dict[str, Any] | None = None,
+) -> tuple[float, list[str]]:
+    """Equation 9 / Table 3.8 allowable sag ratio delta_lim.
+
+    delta_lim = delta_lim,0 * (delta_exp / delta_exp,0)
+
+    When span_m or engineering context is not provided, returns delta_lim,0
+    and includes the `"default_parameters"` flag.
+    """
+    paper_cfg = get_setting("paper_crs_params", {}) or {}
+    d0_map = paper_cfg.get("delta_lim0", {}) if isinstance(paper_cfg, dict) else {}
+    norm_cls = normalize_class_name(class_name)
+    canon_cls = normalize_wire_class(norm_cls)
+    d0 = float(
+        d0_map.get(
+            canon_cls,
+            d0_map.get(norm_cls, d0_map.get("default", 0.04)),
+        )
+    )
+
+    flags: list[str] = []
+    ctx = context or {}
+    effective_span = span_m if span_m is not None else ctx.get("span_m")
+    if effective_span is None or float(effective_span) <= 0:
+        flags.append("default_parameters")
+        return d0, flags
+
+    span = float(effective_span)
+    cond = _DEFAULT_CONDUCTORS.get(canon_cls, _DEFAULT_CONDUCTORS["communication_cable"])
+    t_ref = 25.0
+    temp_c = float(ctx["temperature_c"]) if ctx.get("temperature_c") is not None else t_ref
+    wind_mps = float(ctx["wind_speed_mps"]) if ctx.get("wind_speed_mps") is not None else 0.0
+    if ctx.get("temperature_c") is None:
+        flags.append("default_temperature")
+    if ctx.get("wind_speed_mps") is None:
+        flags.append("default_wind")
+
+    w1 = float(ctx.get("weight_n_per_m") or cond["weight_n_per_m"])
+    e_mod = float(ctx.get("elastic_modulus_pa") or cond["elastic_modulus_pa"])
+    area = cond["area_m2"]
+    alpha = cond["thermal_expansion_per_c"]
+    h1 = cond["reference_tension_n"]
+    diam = cond["diameter_m"]
+
+    # Reference state sag ratio
+    d_exp0 = (h1 / w1) * (math.cosh(w1 * span / (2.0 * h1)) - 1.0) / span
+    if d_exp0 <= 0:
+        flags.append("default_parameters")
+        return d0, flags
+
+    # Capture state with wind & temperature
+    rho_air = 1.225
+    cd = 1.0
+    w_wind = 0.5 * rho_air * (wind_mps**2) * cd * diam
+    w_res = math.hypot(w1, w_wind)
+    try:
+        h2 = _change_of_state_tension(h1, w1, t_ref, w_res, temp_c, span, e_mod, area, alpha)
+        d_exp = (h2 / w_res) * (math.cosh(w_res * span / (2.0 * h2)) - 1.0) / span
+        delta_lim = float(d0 * (d_exp / d_exp0))
+        return delta_lim, flags
+    except Exception:
+        flags.append("default_parameters")
+        return d0, flags
+
+
+def compute_paper_crs(
+    sag_to_span: float,
+    delta_lim: float = 0.04,
+    class_weight: float = 1.0,
+    *,
+    fit_failed: bool = False,
+) -> tuple[float | None, str | None]:
+    """Equation 10 & Table 1.2 paper-conformant 0-10 Catenary Risk Score and risk level.
+
+        CRS = min{10, 10 * (delta_rel / delta_lim) * w_class}
+
+        Low (green)     if CRS < 3.0
+        Medium (yellow) if 3.0 <= CRS <= 6.0
+        High (red)      if CRS > 6.0
+
+    When fit_failed is True (Algorithm 5 line 4), CRS is None and level is None.
+    """
+    if fit_failed or sag_to_span is None:
+        return None, None
+    if delta_lim <= 0:
+        raise ValueError("delta_lim must be positive")
+    delta_rel = max(0.0, float(sag_to_span))
+    crs_10 = min(10.0, 10.0 * (delta_rel / float(delta_lim)) * float(class_weight))
+    crs_10 = round(float(crs_10), 4)
+
+    paper_cfg = get_setting("paper_crs_params", {}) or {}
+    low_below = float(paper_cfg.get("low_below", 3.0)) if isinstance(paper_cfg, dict) else 3.0
+    high_above = float(paper_cfg.get("high_above", 6.0)) if isinstance(paper_cfg, dict) else 6.0
+
+    if crs_10 < low_below:
+        level = "Low"
+    elif crs_10 <= high_above:
+        level = "Medium"
+    else:
+        level = "High"
+    return crs_10, level
+
+
+def compute_mspi(
+    vni: float,
+    wire_crs_10_list: list[float],
+    alpha: float = 1.0 / 3.0,
+    beta: float = 1.0 / 3.0,
+    gamma: float = 1.0 / 3.0,
+) -> dict[str, Any]:
+    """Equation 11 / Algorithm 6 Multi-Site Priority Index (MSPI).
+
+        MSPI_s = alpha * VNI_s + beta * mean_i(CRS_i) / 10 + gamma * max_i(CRS_i) / 10,
+                 alpha + beta + gamma = 1
+
+    When wire_crs_10_list is empty, returns mspi=None and flags=["NO_VALID_WIRES"].
+    """
+    valid_crs = [float(c) for c in wire_crs_10_list if c is not None and math.isfinite(float(c))]
+    if not valid_crs:
+        return {
+            "mspi": None,
+            "mean_crs_10": None,
+            "max_crs_10": None,
+            "paper_risk_level": None,
+            "n_wires": 0,
+            "flags": ["NO_VALID_WIRES"],
+        }
+
+    total_w = float(alpha) + float(beta) + float(gamma)
+    if total_w <= 0 or not math.isclose(total_w, 1.0, abs_tol=1e-6):
+        raise ValueError("alpha + beta + gamma must equal 1.0")
+
+    vni_clamped = max(0.0, min(1.0, float(vni or 0.0)))
+    mean_crs = float(np.mean(valid_crs))
+    max_crs = float(np.max(valid_crs))
+    mspi_val = float(alpha * vni_clamped + beta * (mean_crs / 10.0) + gamma * (max_crs / 10.0))
+    mspi_val = round(max(0.0, min(1.0, mspi_val)), 6)
+    _, max_level = compute_paper_crs(max_crs / 10.0, delta_lim=1.0, class_weight=1.0)
+    # Determine level directly from max_crs on 0-10 scale
+    paper_cfg = get_setting("paper_crs_params", {}) or {}
+    low_below = float(paper_cfg.get("low_below", 3.0)) if isinstance(paper_cfg, dict) else 3.0
+    high_above = float(paper_cfg.get("high_above", 6.0)) if isinstance(paper_cfg, dict) else 6.0
+    if max_crs < low_below:
+        max_level = "Low"
+    elif max_crs <= high_above:
+        max_level = "Medium"
+    else:
+        max_level = "High"
+
+    return {
+        "mspi": mspi_val,
+        "mean_crs_10": round(mean_crs, 4),
+        "max_crs_10": round(max_crs, 4),
+        "paper_risk_level": max_level,
+        "n_wires": len(valid_crs),
+        "flags": [],
+    }
+
+
+def mspi_weight_grid(step: float = 0.1) -> list[tuple[float, float, float]]:
+    """All (alpha, beta, gamma) triples on the simplex with step 0.1 (66 triples)."""
+    k = round(1.0 / step)
+    if not math.isclose(k * step, 1.0, abs_tol=1e-9):
+        raise ValueError("step must divide 1")
+    return [
+        (round(i / k, 4), round(j / k, 4), round((k - i - j) / k, 4))
+        for i in range(k + 1)
+        for j in range(k + 1 - i)
+    ]
+
+
+def compute_mspi_sensitivity_grid(
+    sites: list[dict[str, Any]],
+    baseline: tuple[float, float, float] = (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+    step: float = 0.1,
+    k: int = 5,
+) -> dict[str, Any]:
+    """Table 3.11 / Section 3.6.6 sensitivity analysis over the 66-point weight grid.
+
+    Each site dict in `sites` should provide:
+      - `site_id`: str | int
+      - `vni`: float
+      - `crs_10_list` (or `crs`): list[float] of per-wire 0-10 CRS values
+    """
+    valid_sites = []
+    for s in sites:
+        crs_list = s.get("crs_10_list") if "crs_10_list" in s else s.get("crs", [])
+        clean_crs = [float(c) for c in (crs_list or []) if c is not None and math.isfinite(float(c))]
+        if clean_crs:
+            valid_sites.append({
+                "site_id": str(s.get("site_id", s.get("id", ""))),
+                "vni": float(s.get("vni") or 0.0),
+                "crs": clean_crs,
+            })
+
+    def _order_for_weights(a: float, b: float, g: float) -> list[str]:
+        scored = []
+        for s in valid_sites:
+            res = compute_mspi(s["vni"], s["crs"], alpha=a, beta=b, gamma=g)
+            scored.append((s["site_id"], res["mspi"], res["max_crs_10"]))
+        scored.sort(key=lambda item: (-item[1], -item[2], item[0]))
+        return [item[0] for item in scored]
+
+    base_order = _order_for_weights(*baseline)
+    top_k = min(k, len(base_order))
+    base_pos = {sid: idx for idx, sid in enumerate(base_order)}
+    ranks_by_site: dict[str, list[int]] = {sid: [] for sid in base_order}
+    rows: list[dict[str, Any]] = []
+
+    for a, b, g in mspi_weight_grid(step):
+        order = _order_for_weights(a, b, g)
+        for idx, sid in enumerate(order):
+            ranks_by_site[sid].append(idx + 1)
+
+        rho = None
+        overlap = None
+        if len(order) >= 2:
+            x = [base_pos[sid] for sid in order]
+            res = spearmanr(x, list(range(len(order))))
+            if np.isfinite(res.statistic):
+                rho = round(float(res.statistic), 6)
+        if top_k > 0:
+            overlap = round(len(set(order[:top_k]) & set(base_order[:top_k])) / top_k, 6)
+
+        rows.append({
+            "alpha": a,
+            "beta": b,
+            "gamma": g,
+            "spearman_rho": rho,
+            "top_k_overlap": overlap,
+            "order": order,
+        })
+
+    rhos = [r["spearman_rho"] for r in rows if r["spearman_rho"] is not None]
+    return {
+        "baseline": baseline,
+        "n_sites": len(base_order),
+        "k": top_k,
+        "grid_size": len(rows),
+        "rows": rows,
+        "min_rho": min(rhos) if rhos else None,
+        "mean_rho": round(float(np.mean(rhos)), 6) if rhos else None,
+        "rank_range": {sid: (min(v), max(v)) for sid, v in ranks_by_site.items() if v},
+    }
 
 
 def compute_barangay_risk(
@@ -51,10 +362,7 @@ def compute_barangay_risk(
 
 
 def get_severity(confidence: float) -> str:
-    """Map confidence to severity (INVERTED: high confidence = low risk).
-
-    TODO(THESIS-3.5): Verify threshold boundaries.
-    """
+    """Map confidence to severity (INVERTED: high confidence = low risk)."""
     t = get_setting("severity_thresholds")
     if confidence >= t["high_confidence_min"]:
         return "low"
@@ -141,7 +449,6 @@ def compute_safety_level(crs_band: str, clearance_status: str, clearance_estimat
         safety_level = "Unknown"
         reasons.append("Both CRS and clearance are unavailable. Cannot determine safety.")
     elif clearance_status == "unavailable":
-        # Caps based on CRS only, but cannot confirm safe without clearance
         rank = crs_rank
         level = mapping["rank_to_level"].get(str(rank), "Unknown")
         if level == "Safe":
@@ -152,14 +459,12 @@ def compute_safety_level(crs_band: str, clearance_status: str, clearance_estimat
             reasons.append("Clearance could not be estimated; verdict is based on CRS only.")
         reasons.append(f"CRS band is {crs_band}.")
     elif crs_band == "unavailable":
-        # Clearance alone caps at Unsafe (rank 2)
         rank = min(2, clear_rank)
         safety_level = mapping["rank_to_level"].get(str(rank), "Unknown")
         reasons.append("CRS could not be estimated; verdict is based on clearance only.")
         reasons.append(clearance_estimate_str)
     else:
         rank = max(crs_rank, clear_rank)
-        # If clearance drives it, but clearance rank is 3? Clearance rank only goes up to 2 (below)
         safety_level = mapping["rank_to_level"].get(str(rank), "Unknown")
         reasons.append(f"CRS band is {crs_band}.")
         reasons.append(clearance_estimate_str)
@@ -175,11 +480,7 @@ def compute_metric_clearance(
     pole_bbox_height_px: float,
     assumed_pole_height_m: float,
 ) -> dict[str, Any]:
-    """Deprecated thin wrapper over new calibration logic for backwards compatibility.
-    
-    TODO(VERIFY-WITH-ADVISER): Proper clearance checks bottom of wire to ground. 
-    This legacy function compares sag directly to the ground clearance threshold!
-    """
+    """Deprecated thin wrapper over new calibration logic for backwards compatibility."""
     pec_min_map = get_setting("pec_min_clearance_by_class", {})
     pec_min = pec_min_map.get("default", 5.5)
     margin: float = get_setting("margin_of_error_pct")
@@ -214,13 +515,10 @@ def compute_metric_clearance(
         "meters_per_px": round(meters_per_px, 6),
     }
 
+
 def rank_sites(sites_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Rank sites based on max image score, with mean score as a tie-breaker.
-    
-    TODO(THESIS-3.5): Verify site aggregation formula.
-    """
+    """Rank sites based on max image score, with mean score as a tie-breaker."""
     def site_key(site):
-        # We assume site data has a list of image_scores
         scores = site.get("image_scores", [0.0])
         if not scores:
             return (0.0, 0.0)

@@ -407,5 +407,28 @@ describe('Admin Dashboard Polish Tests', () => {
                 'loadDashboardStats must pass include_mock query param matching state.includeMock'
             );
         });
+
+        it('distribution uses the 4 canonical classes and rolls up legacy keys', () => {
+            assert.match(
+                dashboardJs,
+                /power_distribution_line/,
+                'dashboard.js must include power_distribution_line in default distribution keys'
+            );
+            assert.match(
+                dashboardJs,
+                /communication_cable/,
+                'dashboard.js must include communication_cable in default distribution keys'
+            );
+            assert.match(
+                dashboardJs,
+                /dead_wire/,
+                'dashboard.js must include dead_wire in default distribution keys'
+            );
+            assert.match(
+                dashboardJs,
+                /vegetation/,
+                'dashboard.js must include vegetation in default distribution keys'
+            );
+        });
     });
 });

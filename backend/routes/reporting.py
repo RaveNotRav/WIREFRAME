@@ -27,14 +27,52 @@ async def get_ranking(include_mock: bool = Query(False, description="Include moc
         if not include_mock:
             mock_clause = "AND a.is_mock = 0"
         rows = conn.execute(f"""
-            SELECT s.name as company, s.barangay, s.street, AVG(a.risk_score) as avg_risk, COUNT(a.id) as analysis_count
+            SELECT s.id as site_id, s.name as company, s.barangay, s.street, AVG(a.risk_score) as avg_risk, AVG(a.vni) as avg_vni, COUNT(a.id) as analysis_count
             FROM analyses a
             JOIN sites s ON a.site_id = s.id
             WHERE a.status = 'complete' AND a.is_public = 0 {mock_clause}
             GROUP BY s.id, s.barangay, s.street
             ORDER BY avg_risk DESC
         """).fetchall()
-        return {"rankings": [dict(r) for r in rows]}
+        from backend.formulas import compute_allowable_sag, compute_mspi, compute_paper_crs
+        from backend.utils.clearance_helpers import parse_params_json
+        from backend.utils.cv.vni import get_vni_band
+
+        rankings = []
+        for r in rows:
+            rd = dict(r)
+            sid = rd.get("site_id")
+            wire_rows = conn.execute(f"""
+                SELECT w.crs, w.sag_px, w.span_px, w.class_name, w.params_json
+                FROM wires w
+                JOIN analyses a ON w.analysis_id = a.id
+                WHERE a.site_id = ? AND a.status = 'complete' AND a.is_public = 0 {mock_clause}
+            """, (sid,)).fetchall()
+
+            crs_10_list: list[float] = []
+            for wr in wire_rows:
+                p_dict = parse_params_json(wr["params_json"])
+                c10 = p_dict.get("crs_10")
+                if c10 is None and not p_dict.get("fit_failed", False):
+                    if wr["sag_px"] is not None and wr["span_px"] and float(wr["span_px"]) > 0:
+                        d_lim, _ = compute_allowable_sag(wr["class_name"] or "default")
+                        c10, _ = compute_paper_crs(float(wr["sag_px"]) / float(wr["span_px"]), delta_lim=d_lim)
+                    elif wr["crs"] is not None:
+                        c10 = round(min(10.0, max(0.0, float(wr["crs"]) / 10.0)), 4)
+                if c10 is not None:
+                    crs_10_list.append(float(c10))
+
+            vni_val = float(rd.get("avg_vni") or 0.0)
+            mspi_info = compute_mspi(vni_val, crs_10_list)
+            rd["vni_band"] = get_vni_band(vni_val)
+            rd["mspi"] = mspi_info["mspi"]
+            rd["mean_crs_10"] = mspi_info["mean_crs_10"]
+            rd["max_crs_10"] = mspi_info["max_crs_10"]
+            rd["paper_risk_level"] = mspi_info["paper_risk_level"]
+            rd["flags"] = mspi_info["flags"]
+            rankings.append(rd)
+
+        return {"rankings": rankings}
     finally:
         conn.close()
 
@@ -53,7 +91,51 @@ def _get_analysis_data(conn, analysis_id: int):
     
     data = dict(a)
     data['site'] = data.get('site_name') or 'Unknown'
-    data['wires'] = [dict(w) for w in wires]
+    from backend.formulas import compute_allowable_sag, compute_mspi, compute_paper_crs
+    from backend.utils.clearance_helpers import parse_params_json
+    from backend.utils.cv.vni import get_vni_band
+
+    enriched_wires = []
+    wire_crs_10_list: list[float] = []
+    analysis_flags: list[str] = []
+    for w in wires:
+        wd = dict(w)
+        p_dict = parse_params_json(wd.get('params_json'))
+        c10 = p_dict.get('crs_10')
+        p_lvl = p_dict.get('paper_risk_level')
+        w_flags = p_dict.get('flags', [])
+        if not isinstance(w_flags, list):
+            w_flags = []
+        if c10 is None and not p_dict.get('fit_failed', False):
+            if wd.get('sag_px') is not None and wd.get('span_px') and float(wd.get('span_px') or 0) > 0:
+                d_lim, s_fl = compute_allowable_sag(wd.get('class_name') or 'default')
+                c10, p_lvl = compute_paper_crs(float(wd['sag_px']) / float(wd['span_px']), delta_lim=d_lim)
+                w_flags = list(dict.fromkeys(list(w_flags) + list(s_fl)))
+            elif wd.get('crs') is not None:
+                c10 = round(min(10.0, max(0.0, float(wd['crs']) / 10.0)), 4)
+                _, p_lvl = compute_paper_crs(c10 / 10.0, delta_lim=1.0)
+        wd['crs_10'] = c10
+        wd['paper_risk_level'] = p_lvl
+        wd['flags'] = w_flags
+        if c10 is not None:
+            wire_crs_10_list.append(float(c10))
+        for fl in w_flags:
+            if fl not in analysis_flags:
+                analysis_flags.append(fl)
+        enriched_wires.append(wd)
+
+    data['wires'] = enriched_wires
+    vni_val = data.get('vni')
+    data['vni_band'] = get_vni_band(float(vni_val)) if vni_val is not None else 'unavailable'
+    mspi_res = compute_mspi(float(vni_val or 0.0), wire_crs_10_list)
+    data['mspi'] = mspi_res['mspi']
+    data['mean_crs_10'] = mspi_res['mean_crs_10']
+    data['max_crs_10'] = mspi_res['max_crs_10']
+    data['paper_risk_level'] = mspi_res['paper_risk_level']
+    for fl in mspi_res.get('flags', []):
+        if fl not in analysis_flags:
+            analysis_flags.append(fl)
+    data['flags'] = analysis_flags
     data['calibrations'] = [dict(c) for c in calibrations]
     
     # settings
@@ -429,6 +511,11 @@ def export_geojson(
                 "crs": data.get("max_crs"),
                 "ground_clearance_m": ground_clearance_m,
                 "vni": data.get("vni"),
+                "vni_band": data.get("vni_band"),
+                "mspi": data.get("mspi"),
+                "max_crs_10": data.get("max_crs_10"),
+                "paper_risk_level": data.get("paper_risk_level"),
+                "flags": data.get("flags", []),
                 "gps_source": gps_src_label,
                 "is_mock": rec_mock,
                 "is_public": rec_public,
@@ -530,6 +617,10 @@ def export_csv(
                 "crs": data.get("max_crs"),
                 "ground_clearance_m": ground_clearance_m,
                 "vni": data.get("vni"),
+                "vni_band": data.get("vni_band") or "",
+                "mspi": data.get("mspi") if data.get("mspi") is not None else "",
+                "max_crs_10": data.get("max_crs_10") if data.get("max_crs_10") is not None else "",
+                "paper_risk_level": data.get("paper_risk_level") or "",
                 "created_at": format_pht_timestamp(data.get("created_at"), include_time=True),
                 "gps_lat": data.get("gps_lat"),
                 "gps_lng": data.get("gps_lng"),

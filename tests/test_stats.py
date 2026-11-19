@@ -53,8 +53,8 @@ def test_stats_aggregation(client_admin: TestClient, _init_settings):
     assert data["kpis"]["high_critical_count"] == 1
     assert data["kpis"]["average_risk_score"] == 0.1
     
-    assert data["distribution"]["power_line"] == 1
-    assert data["distribution"]["telecom_cable"] == 0
+    assert data["distribution"]["power_distribution_line"] == 1
+    assert data["distribution"]["communication_cable"] == 0
     
     assert len(data["heatmap"]) == 1
     assert data["heatmap"][0]["site_name"] == "Site1"

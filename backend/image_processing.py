@@ -15,47 +15,9 @@ _EXIF_SOFTWARE = 0x0131   # 305
 
 
 def compute_visual_noise_index(image: np.ndarray) -> float:
-    """FFT-based Visual Noise Index.
-
-    Grayscale -> resize longest 512 -> /255 -> fft2 -> fftshift -> magnitude.
-    Mask out radius < 8%*min(H,W) and axis bands |x-cx|<2, |y-cy|<2.
-    VNI = sum(mag*mask) / sum(mag), clipped [0,1].
-    """
-    if len(image.shape) == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = image.copy()
-
-    h, w = gray.shape[:2]
-    longest = max(h, w)
-    if longest > 0:
-        scale = 512.0 / longest
-        gray = cv2.resize(gray, (max(1, int(w * scale)), max(1, int(h * scale))),
-                          interpolation=cv2.INTER_AREA)
-
-    h, w = gray.shape
-    if h < 4 or w < 4:
-        return 0.0
-
-    gray = gray.astype(np.float64) / 255.0
-    magnitude = np.abs(np.fft.fftshift(np.fft.fft2(gray)))
-    total = np.sum(magnitude)
-    if total == 0:
-        return 0.0
-
-    cy, cx = h // 2, w // 2
-    radius_thr = int(0.08 * min(h, w))
-    yy, xx = np.ogrid[:h, :w]
-    dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
-
-    mask = np.ones((h, w), dtype=bool)
-    mask[dist < radius_thr] = False
-    mask[np.abs(yy - cy)[:, 0] < 2, :] = False
-    mask[:, np.abs(xx - cx)[0, :] < 2] = False
-
-    vni = float(np.clip(np.sum(magnitude[mask]) / total, 0.0, 1.0))
-    logger.debug("VNI=%.4f", vni)
-    return vni
+    """FFT-based Visual Noise Index (delegates to paper-conformant compute_vni)."""
+    from backend.utils.cv.vni import compute_vni
+    return compute_vni(image).vni
 
 
 def check_authenticity(image_path: str) -> dict[str, Any]:

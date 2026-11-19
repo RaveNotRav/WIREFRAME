@@ -1,0 +1,382 @@
+[
+  {
+    "epoch": 1,
+    "loss": 2.779669128601847,
+    "iou": {
+      "Vegetation": 0.0867442131654131,
+      "abandoned-wire": 0.0006057726570851645,
+      "power-distribution-lines": 0.1213873189699271,
+      "telecom-cable": 0.13925723446949542
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.06489617085688607,
+      "abandoned-wire": 0.0013985373483450054,
+      "power-distribution-lines": 0.20442114416369375,
+      "telecom-cable": 0.2909924970785397
+    },
+    "wire_miou": 0.08708344203216922,
+    "seconds": 525.6,
+    "wire_tolerant": 0.2477068206211167
+  },
+  {
+    "epoch": 2,
+    "loss": 1.7817769338882048,
+    "iou": {
+      "Vegetation": 0.13717604347959655,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.1953045617412696,
+      "telecom-cable": 0.17632841123832488
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.1384787675992135,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.39487906943754875,
+      "telecom-cable": 0.31614187721644804
+    },
+    "wire_miou": 0.12387765765986482,
+    "seconds": 577.7,
+    "wire_tolerant": 0.35551047332699837
+  },
+  {
+    "epoch": 3,
+    "loss": 1.5841036170136695,
+    "iou": {
+      "Vegetation": 0.09835395634114921,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.1327234720752529,
+      "telecom-cable": 0.1453754996396634
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.0990644748146079,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2715992123995338,
+      "telecom-cable": 0.21989299458715308
+    },
+    "wire_miou": 0.09269965723830542,
+    "seconds": 615.3,
+    "wire_tolerant": 0.24574610349334342
+  },
+  {
+    "epoch": 4,
+    "loss": 1.5256074125470678,
+    "iou": {
+      "Vegetation": 0.09445443830586622,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2410418386787641,
+      "telecom-cable": 0.19375475995835692
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.09595581990378069,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.4857117982836381,
+      "telecom-cable": 0.36104436171042925
+    },
+    "wire_miou": 0.14493219954570702,
+    "seconds": 541.7,
+    "wire_tolerant": 0.4233780799970337
+  },
+  {
+    "epoch": 5,
+    "loss": 1.502827205299552,
+    "iou": {
+      "Vegetation": 0.09477761007619799,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2122661001504588,
+      "telecom-cable": 0.19289269408689044
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.09850791822163515,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.38733577172434736,
+      "telecom-cable": 0.36668140473121413
+    },
+    "wire_miou": 0.13505293141244976,
+    "seconds": 514.6,
+    "wire_tolerant": 0.3770085882277807
+  },
+  {
+    "epoch": 6,
+    "loss": 1.4763059175871556,
+    "iou": {
+      "Vegetation": 0.10238689208065359,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.22336255537819358,
+      "telecom-cable": 0.19279048736213686
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.10615275085347653,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.46307190053767644,
+      "telecom-cable": 0.362546985327122
+    },
+    "wire_miou": 0.13871768091344347,
+    "seconds": 576.6,
+    "wire_tolerant": 0.4128094429323992
+  },
+  {
+    "epoch": 7,
+    "loss": 1.4616568918321646,
+    "iou": {
+      "Vegetation": 0.1201975645228644,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2566514482385975,
+      "telecom-cable": 0.22515280067914067
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.12151933826041737,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.5131229243835105,
+      "telecom-cable": 0.38884684053392593
+    },
+    "wire_miou": 0.1606014163059127,
+    "seconds": 568.6,
+    "wire_tolerant": 0.4509848824587182
+  },
+  {
+    "epoch": 8,
+    "loss": 1.4239853688704422,
+    "iou": {
+      "Vegetation": 0.09084365836671503,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2421503293668677,
+      "telecom-cable": 0.21152818757578645
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.0948443344228457,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.4819784064124339,
+      "telecom-cable": 0.37281505625306344
+    },
+    "wire_miou": 0.15122617231421806,
+    "seconds": 649.0,
+    "wire_tolerant": 0.4273967313327487
+  },
+  {
+    "epoch": 9,
+    "loss": 1.4176880216676426,
+    "iou": {
+      "Vegetation": 0.11314710313850353,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.261370591722613,
+      "telecom-cable": 0.20506322898822707
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.11289133966248105,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.5190695041449186,
+      "telecom-cable": 0.3842452852471479
+    },
+    "wire_miou": 0.1554779402369467,
+    "seconds": 710.2,
+    "wire_tolerant": 0.4516573946960333
+  },
+  {
+    "epoch": 10,
+    "loss": 1.4020617146507588,
+    "iou": {
+      "Vegetation": 0.08573354762801624,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.25358430327825526,
+      "telecom-cable": 0.2200468961811365
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.09115597307902704,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.5055041360283121,
+      "telecom-cable": 0.38446591286249443
+    },
+    "wire_miou": 0.1578770664864639,
+    "seconds": 642.1,
+    "wire_tolerant": 0.4449850244454033
+  },
+  {
+    "epoch": 11,
+    "loss": 1.3648911424322065,
+    "iou": {
+      "Vegetation": 0.09692752512367808,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2528591386542913,
+      "telecom-cable": 0.2213803333042492
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.10085616057322148,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.5055454664625568,
+      "telecom-cable": 0.38799418654042955
+    },
+    "wire_miou": 0.15807982398618017,
+    "seconds": 625.4,
+    "wire_tolerant": 0.4467698265014932
+  },
+  {
+    "epoch": 12,
+    "loss": 1.3259366970825819,
+    "iou": {
+      "Vegetation": 0.11945221674876848,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.24651415602620463,
+      "telecom-cable": 0.20070200053041126
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.12169175787685432,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.4867822082457349,
+      "telecom-cable": 0.3539495910532465
+    },
+    "wire_miou": 0.14907205218553862,
+    "seconds": 613.1,
+    "wire_tolerant": 0.4203658996494907
+  },
+  {
+    "epoch": 13,
+    "loss": 1.3111216901174558,
+    "iou": {
+      "Vegetation": 0.13939265347822982,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2633972706705265,
+      "telecom-cable": 0.2262972546833463
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.14375506931387708,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.521459599279908,
+      "telecom-cable": 0.40873516575512003
+    },
+    "wire_miou": 0.16323150845129095,
+    "seconds": 607.7,
+    "wire_tolerant": 0.46509738251751404
+  },
+  {
+    "epoch": 14,
+    "loss": 1.2959646535854714,
+    "iou": {
+      "Vegetation": 0.12776576805696846,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2644843420373302,
+      "telecom-cable": 0.22543647370820896
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.13371240619634625,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.5207108549589109,
+      "telecom-cable": 0.40037519619580536
+    },
+    "wire_miou": 0.1633069385818464,
+    "seconds": 609.0,
+    "wire_tolerant": 0.46054302557735816
+  },
+  {
+    "epoch": 15,
+    "loss": 1.2476745982185689,
+    "iou": {
+      "Vegetation": 0.11540630297159858,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.26964210516934445,
+      "telecom-cable": 0.22557122998248547
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.11737891111139047,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.5343885652140138,
+      "telecom-cable": 0.4140297699785488
+    },
+    "wire_miou": 0.16507111171727665,
+    "seconds": 773.2,
+    "wire_tolerant": 0.4742091675962813
+  },
+  {
+    "epoch": 16,
+    "loss": 1.2217545554139255,
+    "iou": {
+      "Vegetation": 0.14138237865891473,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.27819030229255426,
+      "telecom-cable": 0.2324828457738462
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.14688998875935005,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.5396996033467045,
+      "telecom-cable": 0.4150186327735379
+    },
+    "wire_miou": 0.17022438268880014,
+    "seconds": 663.5,
+    "wire_tolerant": 0.4773591180601212
+  },
+  {
+    "epoch": 17,
+    "loss": 1.2259590280990975,
+    "iou": {
+      "Vegetation": 0.11935520135294318,
+      "abandoned-wire": 0.0002461809559595227,
+      "power-distribution-lines": 0.2723009771956991,
+      "telecom-cable": 0.2272553916563119
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.12032045310253496,
+      "abandoned-wire": 0.0012038027821219854,
+      "power-distribution-lines": 0.5345297399653356,
+      "telecom-cable": 0.40802205476748366
+    },
+    "wire_miou": 0.1666008499359902,
+    "seconds": 606.9,
+    "wire_tolerant": 0.4712758973664096
+  },
+  {
+    "epoch": 18,
+    "loss": 1.2049592708060943,
+    "iou": {
+      "Vegetation": 0.11602213347210376,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2699893138632283,
+      "telecom-cable": 0.22592558884765299
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.12040870242180496,
+      "abandoned-wire": 0.000552008390527536,
+      "power-distribution-lines": 0.5346529744869105,
+      "telecom-cable": 0.4068578333042758
+    },
+    "wire_miou": 0.16530496757029375,
+    "seconds": 607.4,
+    "wire_tolerant": 0.4707554038955931
+  },
+  {
+    "epoch": 19,
+    "loss": 1.174936221900329,
+    "iou": {
+      "Vegetation": 0.11236673922265415,
+      "abandoned-wire": 0.0,
+      "power-distribution-lines": 0.2731962373833944,
+      "telecom-cable": 0.23025334969417627
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.11567187045179476,
+      "abandoned-wire": 0.0003881898933619528,
+      "power-distribution-lines": 0.5359340058955072,
+      "telecom-cable": 0.4097669523261406
+    },
+    "wire_miou": 0.16781652902585686,
+    "seconds": 599.0,
+    "wire_tolerant": 0.4728504791108239
+  },
+  {
+    "epoch": 20,
+    "loss": 1.1921239429050021,
+    "iou": {
+      "Vegetation": 0.11213218388365147,
+      "abandoned-wire": 2.821431594390994e-05,
+      "power-distribution-lines": 0.2712529308873061,
+      "telecom-cable": 0.22828688713493928
+    },
+    "tolerant_iou": {
+      "Vegetation": 0.11538965512320365,
+      "abandoned-wire": 0.0005060728744939271,
+      "power-distribution-lines": 0.5344948724801916,
+      "telecom-cable": 0.40969659795451635
+    },
+    "wire_miou": 0.1665226774460631,
+    "seconds": 595.3,
+    "wire_tolerant": 0.47209573521735393
+  }
+]

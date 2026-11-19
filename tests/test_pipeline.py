@@ -284,8 +284,8 @@ def test_class_weights_scaling(monkeypatch):
         
         wires = res["wires"]
         # We should have 2 wires. They have the identical geometry, but one is power, one is telecom
-        w_power = next(w for w in wires if w["class_name"] == "power_line")
-        w_telecom = next(w for w in wires if w["class_name"] == "telecom_cable")
+        w_power = next(w for w in wires if w["class_name"] == "power_distribution_line")
+        w_telecom = next(w for w in wires if w["class_name"] == "communication_cable")
         
         assert w_power["crs"] > 0
         # Telecom should be exactly half of Power because weight is 0.5 vs 1.0
@@ -379,7 +379,7 @@ def test_pipeline_class_name_normalization_and_pole_selection(monkeypatch):
         rows = conn.execute("SELECT class_name, crs, clearance_m, clearance_status FROM wires WHERE analysis_id = ?", (a_id,)).fetchall()
         assert len(rows) == 1
         wire = rows[0]
-        assert wire["class_name"] == "power_line"
+        assert wire["class_name"] == "power_distribution_line"
         assert "clock" not in [r["class_name"] for r in rows]
 
         # Verify weight was applied (CRS is scaled by 1.5)
@@ -657,7 +657,7 @@ def test_real_mode_pipeline_regression_float_centerline(tmp_path, monkeypatch):
     wires = conn.execute("SELECT * FROM wires WHERE analysis_id = ?", (a_id,)).fetchall()
     assert len(wires) == 1
     wire = wires[0]
-    assert wire["class_name"] == "power_line"
+    assert wire["class_name"] == "power_distribution_line"
     assert wire["sag_px"] > 0.0
 
     annotated_file = tmp_path / "outputs" / f"analysis_{a_id}_annotated.jpg"

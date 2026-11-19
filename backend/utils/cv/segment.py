@@ -1,12 +1,16 @@
-"""YOLO segmentation wrapper.
+"""YOLO segmentation wrapper supporting both Single-Pass and Tiled (sliced_predict) inference
+with cross-tile mask stitching for thin overhead wires.
 
 Complexity:
-- Model forward pass: O(YOLO_GFLOPs)
-- Mask rasterization/resizing: O(N) where N = width * height of original image
+- Model forward pass: O(YOLO_GFLOPs * num_tiles)
+- Mask rasterization/resizing/stitching: O(N) where N = width * height of original image
 - Overall: O(YOLO) + O(N)
 """
 
+from __future__ import annotations
+
 import logging
+import math
 import os
 import threading
 from typing import Any
@@ -21,8 +25,24 @@ logger = logging.getLogger(__name__)
 _INFERENCE_LOCK = threading.Lock()
 
 
+def positions(n: int, tile: int, overlap: float = 0.3) -> list[int]:
+    """Compute tile start offsets along an axis of length n with given tile size and overlap."""
+    if n <= tile or tile <= 0:
+        return [0]
+    stride = max(1, int(round(tile * (1.0 - float(overlap)))))
+    starts: list[int] = []
+    pos = 0
+    while pos + tile < n:
+        starts.append(pos)
+        pos += stride
+    last = max(0, n - tile)
+    if not starts or starts[-1] != last:
+        starts.append(last)
+    return starts
+
+
 def get_inference_params() -> dict[str, Any]:
-    """Retrieve inference settings from env (WIREFRAME_CONF, WIREFRAME_IOU, WIREFRAME_DEVICE) or config store."""
+    """Retrieve inference settings from env (WIREFRAME_CONF, WIREFRAME_IOU, WIREFRAME_DEVICE, WIREFRAME_TILED) or config store."""
     params = get_setting("inference_params", {}) or {}
 
     env_conf = os.getenv("WIREFRAME_CONF")
@@ -40,8 +60,18 @@ def get_inference_params() -> dict[str, Any]:
     env_device = os.getenv("WIREFRAME_DEVICE")
     device = env_device if env_device is not None else params.get("device", "auto")
 
+    env_tiled = os.getenv("WIREFRAME_TILED")
+    if env_tiled is not None:
+        tiled = env_tiled.strip().lower() in ("1", "true", "yes")
+    else:
+        tiled = bool(params.get("tiled", False))
+
     imgsz = int(params.get("imgsz", 1024))
     retina_masks = bool(params.get("retina_masks", True))
+    tile_size = int(params.get("tile_size", 640))
+    tile_overlap = float(params.get("tile_overlap", 0.3))
+    tile_iou = float(params.get("tile_iou", 0.9))
+    max_det = int(params.get("max_det", 1000))
 
     return {
         "conf": conf,
@@ -49,12 +79,237 @@ def get_inference_params() -> dict[str, Any]:
         "device": device,
         "imgsz": imgsz,
         "retina_masks": retina_masks,
+        "tiled": tiled,
+        "tile_size": tile_size,
+        "tile_overlap": tile_overlap,
+        "tile_iou": tile_iou,
+        "max_det": max_det,
     }
 
 
-def segment_image(rgb_image: np.ndarray, model, original_shape: tuple[int, int]) -> SegmentationResult:
+def _mask_bbox(mask_bin: np.ndarray) -> list[float]:
+    """Compute [x1, y1, x2, y2] bounding box from a binary mask."""
+    rows = np.flatnonzero(mask_bin.any(axis=1))
+    cols = np.flatnonzero(mask_bin.any(axis=0))
+    if len(rows) == 0 or len(cols) == 0:
+        return [0.0, 0.0, 0.0, 0.0]
+    return [float(cols[0]), float(rows[0]), float(cols[-1] + 1), float(rows[-1] + 1)]
+
+
+def _stitch_tile_masks_by_class(
+    tile_dets: list[dict[str, Any]],
+    full_h: int,
+    full_w: int,
+    seam_dilate_px: int = 3,
+) -> tuple[list[list[float]], list[int], list[float], list[np.ndarray]]:
+    """Stitch connected or seam-adjacent tile masks of the same class into unified full-image masks."""
+    if not tile_dets:
+        return [], [], [], []
+
+    by_class: dict[int, list[dict[str, Any]]] = {}
+    for det in tile_dets:
+        by_class.setdefault(int(det["cls"]), []).append(det)
+
+    out_boxes: list[list[float]] = []
+    out_classes: list[int] = []
+    out_confs: list[float] = []
+    out_masks: list[np.ndarray] = []
+
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (2 * seam_dilate_px + 1, 2 * seam_dilate_px + 1),
+    )
+
+    for cls_id, dets in by_class.items():
+        n = len(dets)
+        if n == 1:
+            m = dets[0]["mask"]
+            if np.any(m):
+                out_masks.append(m)
+                out_boxes.append(_mask_bbox(m))
+                out_classes.append(cls_id)
+                out_confs.append(float(dets[0]["conf"]))
+            continue
+
+        # Union-find over tile detections of the same class that overlap or touch within seam_dilate_px
+        parent = list(range(n))
+
+        def find(i: int) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        dilated = [cv2.dilate((d["mask"] > 0).astype(np.uint8), kernel) > 0 for d in dets]
+        bboxes = [_mask_bbox(d) for d in dilated]
+
+        for i in range(n):
+            bx1, by1, bx2, by2 = bboxes[i]
+            for j in range(i + 1, n):
+                if find(i) == find(j):
+                    continue
+                cx1, cy1, cx2, cy2 = bboxes[j]
+                # Quick bbox overlap check before pixel intersection
+                if bx2 < cx1 or cx2 < bx1 or by2 < cy1 or cy2 < by1:
+                    continue
+                ix1, iy1 = int(max(bx1, cx1)), int(max(by1, cy1))
+                ix2, iy2 = int(min(bx2, cx2)), int(min(by2, cy2))
+                if ix2 > ix1 and iy2 > iy1:
+                    if np.any(dilated[i][iy1:iy2, ix1:ix2] & dilated[j][iy1:iy2, ix1:ix2]):
+                        parent[find(i)] = find(j)
+
+        groups: dict[int, list[int]] = {}
+        for i in range(n):
+            groups.setdefault(find(i), []).append(i)
+
+        for members in groups.values():
+            merged = np.zeros((full_h, full_w), dtype=np.uint8)
+            weighted_conf = 0.0
+            total_area = 0.0
+            for idx in members:
+                m_bin = (dets[idx]["mask"] > 0).astype(np.uint8)
+                area = float(m_bin.sum())
+                if area <= 0:
+                    continue
+                merged |= (m_bin * 255)
+                weighted_conf += area * float(dets[idx]["conf"])
+                total_area += area
+            if total_area > 0 and np.any(merged):
+                # Close tiny 1-2px tile seam gaps when multiple tiles merged
+                if len(members) > 1:
+                    k_seam = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+                    merged = cv2.morphologyEx(merged, cv2.MORPH_CLOSE, k_seam)
+                out_masks.append(merged)
+                out_boxes.append(_mask_bbox(merged))
+                out_classes.append(cls_id)
+                out_confs.append(round(weighted_conf / total_area, 4))
+
+    return out_boxes, out_classes, out_confs, out_masks
+
+
+def sliced_predict(
+    model: Any,
+    bgr_image: np.ndarray,
+    *,
+    original_shape: tuple[int, int] | None = None,
+    conf: float = 0.25,
+    tile: int = 640,
+    overlap: float = 0.3,
+    tile_iou: float = 0.9,
+    max_det: int = 1000,
+    device: str = "auto",
+) -> SegmentationResult:
+    """Run tiled YOLOv11-seg inference over overlapping crops and stitch masks across tile seams."""
+    img_h, img_w = bgr_image.shape[:2]
+    target_h, target_w = original_shape if original_shape is not None else (img_h, img_w)
+
+    ys = positions(img_h, tile, overlap)
+    xs = positions(img_w, tile, overlap)
+
+    crops: list[np.ndarray] = []
+    offsets: list[tuple[int, int, int, int]] = []
+    for y0 in ys:
+        y1 = min(img_h, y0 + tile)
+        for x0 in xs:
+            x1 = min(img_w, x0 + tile)
+            crops.append(np.ascontiguousarray(bgr_image[y0:y1, x0:x1]))
+            offsets.append((x0, y0, x1 - x0, y1 - y0))
+
+    predict_kwargs: dict[str, Any] = {
+        "conf": conf,
+        "iou": tile_iou,
+        "imgsz": tile,
+        "max_det": max_det,
+        "retina_masks": True,
+        "verbose": False,
+    }
+    if device and str(device).lower() != "auto":
+        predict_kwargs["device"] = device
+
+    with _INFERENCE_LOCK:
+        if hasattr(model, "predict"):
+            results = model.predict(crops, **predict_kwargs)
+        else:
+            # Support callable fake models in unit tests that accept either a list of crops or single crop
+            try:
+                results = model(crops, **predict_kwargs)
+                if len(results) == 1 and len(crops) > 1:
+                    results = [model(c, **predict_kwargs)[0] for c in crops]
+            except Exception:
+                results = [model(c, **predict_kwargs)[0] for c in crops]
+
+    if not results:
+        return SegmentationResult(mask_available=False)
+
+    names: dict[int, str] = {}
+    raw_model_names = getattr(model, "names", None)
+    if isinstance(raw_model_names, dict):
+        names = {int(k): str(v) for k, v in raw_model_names.items()}
+
+    tile_dets: list[dict[str, Any]] = []
+    any_masks = False
+
+    for res_idx, r in enumerate(results):
+        if r is None:
+            continue
+        raw_r_names = getattr(r, "names", None)
+        if isinstance(raw_r_names, dict) and not names:
+            names = {int(k): str(v) for k, v in raw_r_names.items()}
+
+        if not getattr(r, "boxes", None) or not getattr(r, "masks", None):
+            continue
+
+        any_masks = True
+        x0, y0, cw, ch = offsets[res_idx] if res_idx < len(offsets) else (0, 0, img_w, img_h)
+        cls_arr = r.boxes.cls.cpu().numpy().astype(int).tolist()
+        conf_arr = r.boxes.conf.cpu().numpy().tolist()
+        masks_data = r.masks.data.cpu().numpy()
+
+        for i in range(masks_data.shape[0]):
+            m_tile = masks_data[i]
+            if m_tile.shape != (ch, cw):
+                m_tile = cv2.resize(m_tile, (cw, ch), interpolation=cv2.INTER_LINEAR)
+            m_bin = (m_tile > 0.5).astype(np.uint8) * 255
+            if not np.any(m_bin):
+                continue
+
+            full_mask = np.zeros((img_h, img_w), dtype=np.uint8)
+            full_mask[y0 : y0 + ch, x0 : x0 + cw] = m_bin
+            if (img_h, img_w) != (target_h, target_w):
+                full_mask = cv2.resize(full_mask, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+
+            tile_dets.append({
+                "cls": cls_arr[i] if i < len(cls_arr) else 0,
+                "conf": conf_arr[i] if i < len(conf_arr) else 0.0,
+                "mask": full_mask,
+            })
+
+    if not any_masks:
+        return SegmentationResult(mask_available=False, names=names)
+
+    boxes, classes, confidences, masks_list = _stitch_tile_masks_by_class(tile_dets, target_h, target_w)
+    return SegmentationResult(
+        mask_available=True,
+        boxes=boxes,
+        classes=classes,
+        confidences=confidences,
+        masks=masks_list,
+        names=names,
+    )
+
+
+def segment_image(
+    rgb_image: np.ndarray,
+    model: Any,
+    original_shape: tuple[int, int],
+    *,
+    tiled: bool | None = None,
+    tile_size: int | None = None,
+    tile_overlap: float | None = None,
+) -> SegmentationResult:
     """Run YOLO inference and scale masks back to original image size.
     
+    Supports both Single-Pass Mode (default) and Tiled Mode (`tiled=True` or `WIREFRAME_TILED=1`).
     If the model is detect-only (no masks), flags mask_available=False.
     original_shape is (h, w).
     """
@@ -64,7 +319,22 @@ def segment_image(rgb_image: np.ndarray, model, original_shape: tuple[int, int])
     bgr_image = np.ascontiguousarray(cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
 
     params = get_inference_params()
-    predict_kwargs = {
+    use_tiled = tiled if tiled is not None else bool(params.get("tiled", False))
+
+    if use_tiled:
+        return sliced_predict(
+            model,
+            bgr_image,
+            original_shape=original_shape,
+            conf=params["conf"],
+            tile=tile_size if tile_size is not None else int(params.get("tile_size", 640)),
+            overlap=tile_overlap if tile_overlap is not None else float(params.get("tile_overlap", 0.3)),
+            tile_iou=float(params.get("tile_iou", 0.9)),
+            max_det=int(params.get("max_det", 1000)),
+            device=params["device"],
+        )
+
+    predict_kwargs: dict[str, Any] = {
         "conf": params["conf"],
         "iou": params["iou"],
         "imgsz": params["imgsz"],

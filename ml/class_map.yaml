@@ -1,0 +1,48 @@
+# Source label -> WIREFRAME canonical 4-class taxonomy (Section 3.4.2 step 5; revised taxonomy 2026-11-14).
+# Keys are normalised (lower case, spaces/hyphens -> underscore). `null` drops non-wire structural labels.
+# Canonical WIREFRAME classes:
+#   - power_distribution_line  (Roboflow alias: power-distribution-lines)
+#   - communication_cable      (Roboflow alias: telecom-cable; covers telecom lines and fiber-optic drops)
+#   - dead_wire                (Roboflow alias: abandoned-wire)
+#   - vegetation               (Roboflow alias: Vegetation)
+
+# Wireframes-Prelabelled-Datasets (team set) & canonical names
+vegetation: vegetation
+abandoned_wire: dead_wire
+power_distribution_lines: power_distribution_line
+telecom_cable: communication_cable
+power_distribution_line: power_distribution_line
+communication_cable: communication_cable
+dead_wire: dead_wire
+
+# Earlier and public-source names
+fiber_optic_drop: communication_cable
+fiber_optic: communication_cable
+fiber: communication_cable
+dead_abandoned: dead_wire
+dangling_wire: dead_wire
+tree: vegetation
+foliage: vegetation
+
+# Generic labels queued for manual review during dataset curation
+power_line: review
+powerline: review
+transmission_line: review
+conductor: review
+wire: review
+cable: review
+
+# Non-wire structural objects (dropped from wire instance training)
+pole: null
+utility_pole: null
+power_pole: null
+polo: null
+crossarm: null
+crossarm_vert: null
+insulator: null
+insulator_brown: null
+insulator_gray: null
+unsulator_brown: null
+unsulator_gray: null
+streetlight: null
+transformer: null

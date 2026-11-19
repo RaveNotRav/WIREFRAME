@@ -19,7 +19,7 @@ def _generate_scenario_segmentation(
     compute_detection_risk -> compute_barangay_risk -> compute_risk_score).
     """
     h, w = original_shape
-    names = {0: "telecom_cable", 1: "power_line", 2: "dead_abandoned", 3: "pole"}
+    names = {0: "communication_cable", 1: "power_distribution_line", 2: "dead_wire", 3: "pole", 4: "vegetation"}
 
     boxes: list[list[float]] = []
     classes: list[int] = []
@@ -33,6 +33,14 @@ def _generate_scenario_segmentation(
     pole_mask = np.zeros((h, w), dtype=np.uint8)
     cv2.rectangle(pole_mask, (int(w * 0.8), int(h * 0.1)), (int(w * 0.95), int(h * 0.9)), 255, -1)
     masks.append(pole_mask)
+
+    if active_scenario in ("moderate", "high", "critical"):
+        veg_mask = np.zeros((h, w), dtype=np.uint8)
+        cv2.rectangle(veg_mask, (int(w * 0.05), int(h * 0.55)), (int(w * 0.25), int(h * 0.85)), 255, -1)
+        boxes.append([w * 0.05, h * 0.55, w * 0.25, h * 0.85])
+        classes.append(4)
+        confidences.append(0.88)
+        masks.append(veg_mask)
 
     x_end = max(20, int(w * 0.8))
     center_x = x_end * 0.5
@@ -176,7 +184,7 @@ def generate_mock_segmentation(image_path: str, original_shape: tuple[int, int])
             classes=[],
             confidences=[],
             masks=[],
-            names={0: "telecom_cable", 1: "power_line", 2: "dead_abandoned", 3: "pole"}
+            names={0: "communication_cable", 1: "power_distribution_line", 2: "dead_wire", 3: "pole", 4: "vegetation"}
         )
         
     # Generate mock pole
@@ -186,7 +194,7 @@ def generate_mock_segmentation(image_path: str, original_shape: tuple[int, int])
     confidences = []
     masks = []
     
-    names = {0: "telecom_cable", 1: "power_line", 2: "dead_abandoned", 3: "pole"}
+    names = {0: "communication_cable", 1: "power_distribution_line", 2: "dead_wire", 3: "pole", 4: "vegetation"}
     
     if has_pole:
         # Pole bounding box on the right side

@@ -39,6 +39,27 @@ def format_pht_timestamp(utc_val=None, include_time: bool = True) -> str:
     except Exception:
         return str(utc_val)
 
+def format_wire_class_label(cls_name) -> str:
+    if not cls_name:
+        return "Unknown"
+    from backend.utils.cv.types import normalize_wire_class
+    norm = normalize_wire_class(str(cls_name))
+    mapping = {
+        "power_distribution_line": "Power Line",
+        "power_line": "Power Line",
+        "communication_cable": "Communication Wire",
+        "telecom_cable": "Communication Wire",
+        "fiber_optic": "Communication Wire",
+        "fiber_optic_drop": "Communication Wire",
+        "dead_wire": "Abandoned Wire",
+        "dead_abandoned": "Abandoned Wire",
+        "vegetation": "Vegetation",
+        "pole": "Utility Pole",
+        "other": "Other",
+    }
+    return mapping.get(norm, str(cls_name).replace("_", " ").title())
+
+
 def format_gps_source_label(source) -> str:
     if not source:
         return ""
@@ -283,8 +304,18 @@ def build_pdf(data: dict, output_path: str):
         elements.append(img_table)
         elements.append(Spacer(1, 12))
         
-        # VNI
-        elements.append(Paragraph(f"<b>Vegetation Index (VNI):</b> {safe_str(data.get('vni'))}", h3_style))
+        # VNI & Paper MSPI / CRS Summary
+        vni_band_str = f" ({safe_str(data.get('vni_band'))})" if data.get('vni_band') and data.get('vni_band') != 'unavailable' else ""
+        elements.append(Paragraph(f"<b>Vegetation Index (VNI):</b> {safe_str(data.get('vni'))}{vni_band_str}", h3_style))
+        if data.get('mspi') is not None or data.get('max_crs_10') is not None:
+            mspi_str = f"{float(data['mspi']):.3f}" if isinstance(data.get('mspi'), (int, float)) else safe_str(data.get('mspi', '--'))
+            c10_str = f"{float(data['max_crs_10']):.2f}/10" if isinstance(data.get('max_crs_10'), (int, float)) else safe_str(data.get('max_crs_10', '--'))
+            p_lvl_str = f" ({safe_str(data.get('paper_risk_level'))})" if data.get('paper_risk_level') else ""
+            elements.append(Paragraph(f"<b>Multi-Site Priority Index (MSPI):</b> {mspi_str} | <b>Paper Max CRS:</b> {c10_str}{p_lvl_str}", normal_style))
+        if data.get('flags'):
+            flags_joined = ", ".join(str(f) for f in data.get('flags', []) if f)
+            if flags_joined:
+                elements.append(Paragraph(f"<b>Diagnostic Flags:</b> {safe_str(flags_joined)}", normal_style))
         spec_temp = process_image(data.get('spectrum_path'))
         if spec_temp:
             elements.append(get_img_flowable(spec_temp, 6*inch, 2*inch))
@@ -300,6 +331,7 @@ def build_pdf(data: dict, output_path: str):
                 Paragraph("<b>Class</b>", normal_style),
                 Paragraph("<b>Conf</b>", normal_style),
                 Paragraph("<b>CRS</b>", normal_style),
+                Paragraph("<b>CRS (0-10)</b>", normal_style),
                 Paragraph("<b>Band</b>", normal_style),
                 Paragraph("<b>Sag (m)</b>", normal_style),
                 Paragraph("<b>Span (m)</b>", normal_style),
@@ -309,11 +341,19 @@ def build_pdf(data: dict, output_path: str):
             
             for w in wires:
                 w_conf = float(w.get('confidence') or 0.0)
+                c10_val = w.get('crs_10')
+                if isinstance(c10_val, (int, float)):
+                    c10_cell = f"{float(c10_val):.2f}"
+                    if w.get('paper_risk_level'):
+                        c10_cell += f" ({w.get('paper_risk_level')})"
+                else:
+                    c10_cell = "--"
                 table_data.append([
-                    Paragraph(safe_str(w.get('class_name')), normal_style),
+                    Paragraph(safe_str(format_wire_class_label(w.get('class_name'))), normal_style),
                     Paragraph(safe_str(f"{w_conf:.2f}"), normal_style),
                     Paragraph(safe_str(w.get('crs')), normal_style),
-                    Paragraph(safe_str(w.get('crs_band')), normal_style),
+                    Paragraph(safe_str(c10_cell), normal_style),
+                    Paragraph(safe_str(w.get('band') or w.get('crs_band')), normal_style),
                     Paragraph(safe_str(w.get('sag_m')), normal_style),
                     Paragraph(safe_str(w.get('span_m')), normal_style),
                     Paragraph(safe_str(f"{w.get('clearance_min_m')} - {w.get('clearance_max_m')}"), normal_style),

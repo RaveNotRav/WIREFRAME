@@ -1,0 +1,62 @@
+{
+  "version": "1.0.0",
+  "primary_detector": {
+    "file": "backend/models/wireframe_seg.pt",
+    "backup_file": "backend/models/best.pt",
+    "architecture": "YOLOv11-seg",
+    "task": "segment",
+    "default_conf": 0.25,
+    "default_iou": 0.70,
+    "tiled_inference": {
+      "supported": true,
+      "env_var": "WIREFRAME_TILED",
+      "tile_size": 640,
+      "tile_overlap": 0.30,
+      "tile_iou": 0.90,
+      "max_det": 1000
+    }
+  },
+  "wirenet_ensemble": {
+    "spec_file": "backend/models/v212_ensemble.json",
+    "optional": true,
+    "members": [
+      {
+        "name": "wirenet-r34",
+        "weights_file": "backend/models/wirenet-r34.pt",
+        "encoder": "resnet34",
+        "arch": "Unet",
+        "weight": 0.25
+      },
+      {
+        "name": "v212_mitb1",
+        "weights_file": "backend/models/v212_mitb1.pt",
+        "arch_file": "backend/models/v212_mitb1.arch.json",
+        "log_file": "backend/models/v212_mitb1.log.json",
+        "encoder": "mit_b1",
+        "arch": "Unet",
+        "weight": 0.50
+      },
+      {
+        "name": "v212_convnext_t",
+        "weights_file": "backend/models/v212_convnext_t.pt",
+        "arch_file": "backend/models/v212_convnext_t.arch.json",
+        "log_file": "backend/models/v212_convnext_t.log.json",
+        "encoder": "tu-convnext_tiny",
+        "arch": "Unet",
+        "weight": 0.25
+      }
+    ]
+  },
+  "canonical_classes": [
+    "power_distribution_line",
+    "communication_cable",
+    "dead_wire",
+    "vegetation"
+  ],
+  "dataset_alias_mapping": {
+    "Vegetation": "vegetation",
+    "abandoned-wire": "dead_wire",
+    "power-distribution-lines": "power_distribution_line",
+    "telecom-cable": "communication_cable"
+  }
+}

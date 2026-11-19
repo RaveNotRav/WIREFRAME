@@ -55,13 +55,15 @@ async def get_dashboard_stats(
         """
         dist_rows = conn.execute(dist_query).fetchall()
         distribution = {
-            "power_line": 0,
-            "telecom_cable": 0,
-            "fiber_optic": 0,
-            "dead_abandoned": 0
+            "power_distribution_line": 0,
+            "communication_cable": 0,
+            "dead_wire": 0,
+            "vegetation": 0,
         }
+        from backend.utils.cv.types import normalize_wire_class
         for r in dist_rows:
-            cls_key = r["class_name"]
+            raw_cls = r["class_name"] or ""
+            cls_key = normalize_wire_class(raw_cls)
             if cls_key in distribution:
                 distribution[cls_key] += r["count"]
             else:

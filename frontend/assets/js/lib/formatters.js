@@ -17,10 +17,15 @@ export function formatConfidence(conf) {
 
 export function getWireClassColor(className) {
     const mapping = {
+        'power_distribution_line': 'var(--wire-power)',
         'power_line': 'var(--wire-power)',
+        'communication_cable': 'var(--wire-telecom)',
         'telecom_cable': 'var(--wire-telecom)',
         'fiber_optic': 'var(--wire-fiber)',
-        'dead_abandoned': 'var(--wire-dead)'
+        'fiber_optic_drop': 'var(--wire-fiber)',
+        'dead_wire': 'var(--wire-dead)',
+        'dead_abandoned': 'var(--wire-dead)',
+        'vegetation': 'var(--wire-vegetation, var(--telemetry-emerald))'
     };
     return mapping[className] || 'var(--text-muted)';
 }
@@ -28,10 +33,15 @@ export function getWireClassColor(className) {
 export function formatWireClass(className) {
     if (!className) return 'Unknown';
     const known = {
+        'power_distribution_line': 'Power Line',
         'power_line': 'Power Line',
-        'telecom_cable': 'Telecom Cable',
-        'fiber_optic': 'Fiber Optic',
-        'dead_abandoned': 'Dead / Abandoned',
+        'communication_cable': 'Communication Wire',
+        'telecom_cable': 'Communication Wire',
+        'fiber_optic': 'Communication Wire',
+        'fiber_optic_drop': 'Communication Wire',
+        'dead_wire': 'Abandoned Wire',
+        'dead_abandoned': 'Abandoned Wire',
+        'vegetation': 'Vegetation',
         'pole': 'Utility Pole',
         'other': 'Other'
     };
@@ -160,4 +170,3 @@ export function getRiskScorePill(score, bands = DEFAULT_RISK_BANDS) {
     const pillClass = band.safetyClass || classMap[label] || label.toLowerCase();
     return `<span class="neu-pill neu-pill-safety-${pillClass}">${escapeHtml(label)}</span> <span style="font-size:0.85rem; color:var(--text-secondary); margin-left:6px;">(${score.toFixed(1)})</span>`;
 }
-

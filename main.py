@@ -265,6 +265,21 @@ async def health() -> dict[str, Any]:
     except Exception:
         schema_ver = 0
     ready = is_mock or model_loaded
+    model_path_cfg = os.environ.get("WIREFRAME_MODEL_PATH") or get_setting("model_path") or "backend/models/wireframe_seg.pt"
+    weights_present = os.path.isfile(model_path_cfg)
+    try:
+        from backend.utils.cv.wirenet import load_wirenet_ensemble_metadata
+        wn_meta = load_wirenet_ensemble_metadata()
+        wirenet_weights_present = bool(wn_meta.get("all_weights_available", False))
+    except Exception:
+        wirenet_weights_present = False
+    try:
+        from backend.utils.cv.segment import get_inference_params
+        tiled_mode = bool(get_inference_params().get("tiled", False))
+    except Exception:
+        tiled_mode = False
+    from backend.utils.cv.types import CANONICAL_CONTEXT_CLASSES, CANONICAL_WIRE_CLASSES
+    canonical_classes = [*CANONICAL_WIRE_CLASSES, *CANONICAL_CONTEXT_CLASSES]
     resp: dict[str, Any] = {
         "status": "ok",
         "ready": ready,
@@ -272,6 +287,10 @@ async def health() -> dict[str, Any]:
         "model_loaded": model_loaded,
         "schema_version": schema_ver,
         "mock_mode": is_mock,
+        "weights_present": weights_present,
+        "wirenet_weights_present": wirenet_weights_present,
+        "tiled_mode": tiled_mode,
+        "canonical_classes": canonical_classes,
     }
     if is_mock:
         resp["mock_scenario"] = get_mock_scenario()
@@ -313,8 +332,58 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
         data["ground_clearance_m"] = data.get("clearance_available")
         
         wires_rows = conn.execute("SELECT * FROM wires WHERE analysis_id = ?", (analysis_id,)).fetchall()
-        wires_data = [dict(w) for w in wires_rows]
+        from backend.formulas import compute_allowable_sag, compute_mspi, compute_paper_crs
+        from backend.utils.clearance_helpers import parse_params_json
+        from backend.utils.cv.vni import get_vni_band
+
+        wires_data = []
+        wire_crs_10_list: list[float] = []
+        analysis_flags: list[str] = []
+
+        for w in wires_rows:
+            wd = dict(w)
+            p_dict = parse_params_json(wd.get("params_json"))
+            crs_10 = p_dict.get("crs_10")
+            paper_level = p_dict.get("paper_risk_level")
+            w_flags = p_dict.get("flags", [])
+            if not isinstance(w_flags, list):
+                w_flags = []
+
+            if crs_10 is None and not p_dict.get("fit_failed", False):
+                sag_px_val = wd.get("sag_px")
+                span_px_val = wd.get("span_px")
+                if sag_px_val is not None and span_px_val and float(span_px_val) > 0:
+                    sag_to_span_val = float(sag_px_val) / float(span_px_val)
+                    d_lim, s_flags = compute_allowable_sag(wd.get("class_name") or "default")
+                    crs_10, paper_level = compute_paper_crs(sag_to_span_val, delta_lim=d_lim)
+                    w_flags = list(dict.fromkeys(list(w_flags) + list(s_flags)))
+                elif wd.get("crs") is not None:
+                    # Fallback for legacy test rows that only inserted crs (0-100) without sag_px/span_px
+                    crs_10 = round(min(10.0, max(0.0, float(wd["crs"]) / 10.0)), 4)
+                    _, paper_level = compute_paper_crs(crs_10 / 10.0, delta_lim=1.0)
+
+            wd["crs_10"] = crs_10
+            wd["paper_risk_level"] = paper_level
+            wd["flags"] = w_flags
+            if crs_10 is not None:
+                wire_crs_10_list.append(float(crs_10))
+            for fl in w_flags:
+                if fl not in analysis_flags:
+                    analysis_flags.append(fl)
+            wires_data.append(wd)
+
         data["wires"] = wires_data
+        vni_val = data.get("vni")
+        data["vni_band"] = get_vni_band(float(vni_val)) if vni_val is not None else "unavailable"
+        mspi_res = compute_mspi(float(vni_val or 0.0), wire_crs_10_list)
+        data["mspi"] = mspi_res["mspi"]
+        data["mean_crs_10"] = mspi_res["mean_crs_10"]
+        data["max_crs_10"] = mspi_res["max_crs_10"]
+        data["paper_risk_level"] = mspi_res["paper_risk_level"]
+        for fl in mspi_res.get("flags", []):
+            if fl not in analysis_flags:
+                analysis_flags.append(fl)
+        data["flags"] = analysis_flags
         
         # ground_clearance_status mapping
         # clearance_ok encoding without a migration: 1 = ok, 0 = below, 2 = marginal, NULL = no clearance.

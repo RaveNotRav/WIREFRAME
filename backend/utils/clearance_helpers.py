@@ -11,7 +11,7 @@ from backend.formulas import (
     compute_crs_band,
     compute_safety_level,
 )
-from backend.utils.cv.types import normalize_class_name
+from backend.utils.cv.types import normalize_class_name, normalize_wire_class
 from backend.utils.cv.calibration import estimate_clearance
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,8 @@ def evaluate_wire(
     updated_params["clearance_high_m"] = clear_est["clearance_high_m"]
 
     cls_key = normalize_class_name(class_name)
-    pec_min = pec_min_map.get(cls_key, pec_min_map.get("default", 5.5))
+    canon_key = normalize_wire_class(cls_key)
+    pec_min = pec_min_map.get(cls_key, pec_min_map.get(canon_key, pec_min_map.get("default", 5.5)))
 
     if clear_est["status"] != "unavailable":
         clearance_status = compute_clearance_status(
@@ -163,7 +164,8 @@ def rollup_analysis_clearance(
             clearance_ok = None
 
         cls_key = normalize_class_name(lowest_wire["class_name"])
-        pec_min_clearance_m = pec_min_map.get(cls_key, pec_min_map.get("default", 5.5))
+        canon_key = normalize_wire_class(cls_key)
+        pec_min_clearance_m = pec_min_map.get(cls_key, pec_min_map.get(canon_key, pec_min_map.get("default", 5.5)))
 
         sags_m = [fw["sag_m"] for fw in evaluated_wires if fw.get("sag_m") is not None]
         sag_meters = max(sags_m) if sags_m else None

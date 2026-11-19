@@ -3,7 +3,7 @@
 import { fetchApi, showToast } from './main.js';
 import { initTheme, toggleTheme } from './lib/theme.js';
 import { getNaturalCoordinates } from './lib/coordinates.js';
-import { escapeHtml, formatConfidence, getWireClassColor, getRiskBand, formatGpsSourceLabel } from './lib/formatters.js';
+import { escapeHtml, formatConfidence, getWireClassColor, formatWireClass, getRiskBand, formatGpsSourceLabel } from './lib/formatters.js';
 import { statusPresentation, safetyPresentation, shouldShowPublicConfirmation, isTerminalStatus } from './lib/presentation.js';
 
 let currentUser = null;
@@ -1122,6 +1122,29 @@ export function updateTilesFromJson(analysis) {
 
     // VNI
     document.getElementById('vni-value').textContent = typeof analysis.vni === 'number' ? analysis.vni.toFixed(2) : '--';
+    const vniBandEl = document.getElementById('vni-band');
+    if (vniBandEl) {
+        const rawVniBand = analysis.vni_band;
+        if (rawVniBand && rawVniBand !== 'unavailable') {
+            vniBandEl.textContent = `Band: ${rawVniBand}`;
+        } else if (typeof analysis.vni === 'number') {
+            const derivedVniBand = analysis.vni <= 0.25 ? 'Low' : (analysis.vni <= 0.50 ? 'Moderate' : (analysis.vni <= 0.75 ? 'High' : 'Severe'));
+            vniBandEl.textContent = `Band: ${derivedVniBand}`;
+        } else {
+            vniBandEl.textContent = '--';
+        }
+    }
+    const mspiEl = document.getElementById('mspi-summary');
+    if (mspiEl) {
+        if (typeof analysis.mspi === 'number' && !Number.isNaN(analysis.mspi)) {
+            const lvlPart = analysis.paper_risk_level ? ` (${analysis.paper_risk_level})` : '';
+            mspiEl.textContent = `MSPI: ${analysis.mspi.toFixed(3)}${lvlPart}`;
+            mspiEl.style.display = 'block';
+        } else {
+            mspiEl.textContent = '';
+            mspiEl.style.display = 'none';
+        }
+    }
     const ts = new Date().getTime();
     document.getElementById('vni-spectrum').src = `/api/analysis/${analysis.id}/spectrum?t=${ts}`;
     
@@ -1142,14 +1165,21 @@ export function updateTilesFromJson(analysis) {
             const color = getWireClassColor(wireClassName);
             const crsLabel = typeof w.crs === 'number' ? w.crs.toFixed(2) : '--';
             const sagLabel = typeof w.sag_m === 'number' ? `${w.sag_m.toFixed(2)}m` : '--';
+            const paperCrsText = typeof w.crs_10 === 'number'
+                ? ` | Paper CRS: ${w.crs_10.toFixed(2)}/10${w.paper_risk_level ? ` (${escapeHtml(w.paper_risk_level)})` : ''}`
+                : '';
+            const flagsText = (Array.isArray(w.flags) && w.flags.length > 0)
+                ? `<div style="font-size:0.75rem;color:var(--text-muted);">Flags: ${escapeHtml(w.flags.join(', '))}</div>`
+                : '';
             div.innerHTML = `
                 <div>
                     <span style="display:inline-block;width:12px;height:12px;background:${color};border-radius:50%;margin-right:8px;"></span>
-                    <strong>Wire ${i+1} (${escapeHtml(wireClassName)})</strong>
+                    <strong>Wire ${i+1} (${escapeHtml(formatWireClass(wireClassName))})</strong>
                     <div style="font-size:0.85rem;color:var(--text-muted);">Confidence: ${formatConfidence(w?.confidence)}</div>
+                    ${flagsText}
                 </div>
                 <div style="text-align:right;">
-                    <div>Wire CRS: ${crsLabel}</div>
+                    <div>Wire CRS: ${crsLabel}${paperCrsText}</div>
                     <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${sagLabel}</div>
                 </div>
             `;

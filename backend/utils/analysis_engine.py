@@ -42,6 +42,7 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
     severities = []
     
     if seg_res.mask_available:
+        from backend.utils.cv.types import normalize_class_name, normalize_wire_class
         from backend.utils.pipeline import (
             IGNORED_NON_WIRE_CLASSES,
             WIRE_CLASSES,
@@ -52,12 +53,14 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
             raw_cls_name = seg_res.names.get(cls_idx, "unknown")
             cls_name = resolve_class_name(raw_cls_name)
             conf = seg_res.confidences[i]
-            if cls_name == "pole" or cls_name in IGNORED_NON_WIRE_CLASSES or cls_name in ("drop", "ignore", "none"):
+            if cls_name in ("pole", "vegetation") or cls_name in IGNORED_NON_WIRE_CLASSES or cls_name in ("drop", "ignore", "none"):
                 continue
             if cls_name not in WIRE_CLASSES:
                 cls_name = "other"
+            else:
+                cls_name = normalize_wire_class(cls_name)
             
-            if cls_name == "dead_abandoned":
+            if cls_name in ("dead_wire", "dead_abandoned"):
                 dead_wires += 1
                 
             severities.append(get_severity(conf))
@@ -79,8 +82,13 @@ def analyze_image(image_path: str, model, analysis_id: int = None, db_conn = Non
                 
                 # Apply class weights
                 from backend.config_store import get_setting
-                weights = get_setting("class_weights", {})
-                cls_weight = weights.get(cls_name, 1.0)
+                raw_weights = get_setting("class_weights", {}) or {}
+                weights = {}
+                for k, v in raw_weights.items():
+                    nk = normalize_class_name(k)
+                    weights[nk] = v
+                    weights[normalize_wire_class(nk)] = v
+                cls_weight = weights.get(cls_name, weights.get(normalize_class_name(raw_cls_name), 1.0))
                 crs_weighted = max(0.0, min(100.0, crs_raw * cls_weight))
                 
                 max_crs = max(max_crs, crs_weighted)

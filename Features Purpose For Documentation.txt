@@ -1,0 +1,61 @@
+Features Purpose For Documentation
+
+Admin Dashboard
+
+-- Key Performance Indicators (KPI Cards): These are the Total Analyses, High/Critical Risks, Avg Risk Score, Processed Today, this will helps to provide summary of city-wide wire safety. In "High/Critical Risks" numbers can suddenly spikes or the "AVG Risk Score" climbs into red zone then the admin immediately knows there is a widespread infrastructure problem that requires urgent attention.
+
+-- Recent Risk Heatmap: It is divided by a color-coded showing how many reports falls into Safe, Caution, Unsafe, and Critical
+
+-- Wire Class Distribution: A statistical breakdown of the types of wires detected (Power Lines, Telecom Cables, Fiber Optic, Dead/Abandoned). This tells the LGU who is causing the hazard. If 80% of the hazards are "Telecom Cables," the city knows they need to penalize or call a meeting with the local internet providers (like PLDT or Globe) rather than the electric company.
+
+-- Trend Analysis Graph: The interactive line chart that plots average risk scores over the Last 7, 30, or 90 days. This is for Long-term tracking.
+
+-- Data: All Analyses Table: This is where the Admin's work queue, for them easily scan all incoming reports in the system
+
+
+
+
+
+
+
+
+Analyze Feature
+
+-- Multi-Source Image Input(Upload and Camera): Admin can also drag and drop photos emailed to them by the citizen or even field inspectors can use to snap a live picture of a tangled pole and process it on the spot.
+
+-- Location and Metadata Tagging (Barangay, Street, Company): This input field where the inspector logs the exact Street, Barangay, and the Utility Company
+
+-- Interactive Map & GPS Geotagging: This automatically grabs the device's current GPS location, or allows the user drop a pin manually.
+
+-- Automated Risk Scoring System (0-100): This calculates whether the pole is Safe, Caution, Unsafe, or Critical based on the model findings.
+
+-- Manual Override / Editable Results: Inspector or expert admin can manually correct the data before it goes into the official database, ensuring 100% accuracy for city records.
+
+-- Detected Wires: This breakdown the counts exactly how many individual cables that are attached to the pole in the image.
+
+-- Wire Sag and Clearance: The physical geometric measurement of how low a wire hangs, and the distance (clearance) between the lowest point of the wire and the ground below.
+
+-- Vegetation (VNI): The calculation of how close trees, vines, or branches are to the utility lines.
+
+-- Overall Safety: The final, aggregated classification (Safe, Caution, Unsafe, Critical) derived by combining the Catenary Risk, Vegetation, and Clearance data.
+
+-- Recommended Action: Standardizes the LGU's response. It removes all guesswork for the field workers, giving them clear, immediate marching orders based strictly on the procedural math from the image analysis.
+
+-- Status Toggle (Pending vs Complete): An inspector can upload a photo and mark it "Pending" if they need to go back to the office to figure out which company owns the pole. Once verified, they switch it to "Complete," which tells the Dashboard it is ready to be counted in the official city statistics.
+
+
+
+
+
+
+
+
+History Feature
+
+-- Verified Inspector Records: These are images uploaded by logged-in, official city engineers and field inspectors. Because they are trained professionals, their risk analyses are immediately trusted and considered "official LGU data."
+
+-- Public Tips (Unverified): These are images uploaded anonymously by everyday citizens through the public landing page. Because anyone on the internet can upload a picture (including spam, blurry photos, or fake reports), these are considered "unverified."
+
+NOTE:
+
+The separation was designed to protect the Admin's workflow. If a citizen uploads a picture of a regular tree and the AI flags it, wouldn't want that mixing in with the official, critical reports submitted by your actual engineers. By keeping them in two tabs, Admins can focus their primary attention on the "Verified" tab for daily operations, and check the "Public Tips" tab separately to see if any citizen reports are worth sending a real inspector to check out.

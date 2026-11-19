@@ -35,7 +35,11 @@ test('formatConfidence formats correctly', () => {
 });
 
 test('getWireClassColor maps correctly', () => {
+    assert.strictEqual(getWireClassColor('power_distribution_line'), 'var(--wire-power)');
     assert.strictEqual(getWireClassColor('power_line'), 'var(--wire-power)');
+    assert.strictEqual(getWireClassColor('communication_cable'), 'var(--wire-telecom)');
+    assert.strictEqual(getWireClassColor('dead_wire'), 'var(--wire-dead)');
+    assert.strictEqual(getWireClassColor('vegetation'), 'var(--wire-vegetation, var(--telemetry-emerald))');
     assert.strictEqual(getWireClassColor('unknown'), 'var(--text-muted)');
 });
 
@@ -71,8 +75,15 @@ test('formatDbTimestamp formats in Asia/Manila (UTC+8)', () => {
 });
 
 test('formatWireClass formats known classes and falls back to title case', () => {
+    assert.strictEqual(formatWireClass('power_distribution_line'), 'Power Line');
     assert.strictEqual(formatWireClass('power_line'), 'Power Line');
-    assert.strictEqual(formatWireClass('telecom_cable'), 'Telecom Cable');
+    assert.strictEqual(formatWireClass('communication_cable'), 'Communication Wire');
+    assert.strictEqual(formatWireClass('telecom_cable'), 'Communication Wire');
+    assert.strictEqual(formatWireClass('fiber_optic'), 'Communication Wire');
+    assert.strictEqual(formatWireClass('dead_wire'), 'Abandoned Wire');
+    assert.strictEqual(formatWireClass('dead_abandoned'), 'Abandoned Wire');
+    assert.strictEqual(formatWireClass('vegetation'), 'Vegetation');
+    assert.strictEqual(formatWireClass('other'), 'Other');
     assert.strictEqual(formatWireClass('utility_pole'), 'Utility Pole');
     assert.strictEqual(formatWireClass('high_voltage-cable'), 'High Voltage Cable');
     assert.strictEqual(formatWireClass(''), 'Unknown');

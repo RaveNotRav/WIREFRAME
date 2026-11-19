@@ -1,0 +1,8 @@
+{
+  "comment": "v2.12 probability fusion, weights chosen on the 22 validation photos (docs/thesis/chapter4_v2.12_ensemble.md)",
+  "members": [
+    {"weights": "models/wirenet-r34.pt", "weight": 0.25},
+    {"weights": "models/v212_mitb1.pt", "weight": 0.5},
+    {"weights": "models/v212_convnext_t.pt", "weight": 0.25}
+  ]
+}

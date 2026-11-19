@@ -320,13 +320,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        const defaultKeys = ['power_line', 'telecom_cable', 'fiber_optic', 'dead_abandoned'];
-        const allKeys = Array.from(new Set([...defaultKeys, ...Object.keys(dist || {})]));
+        const normalizedDist = { power_distribution_line: 0, communication_cable: 0, dead_wire: 0, vegetation: 0 };
+        const legacyMap = { power_line: 'power_distribution_line', telecom_cable: 'communication_cable', fiber_optic: 'communication_cable', fiber_optic_drop: 'communication_cable', dead_abandoned: 'dead_wire' };
+        for (const [k, rawVal] of Object.entries(dist || {})) {
+            const targetKey = legacyMap[k] || k;
+            normalizedDist[targetKey] = (normalizedDist[targetKey] || 0) + (Number(rawVal) || 0);
+        }
+        const defaultKeys = ['power_distribution_line', 'communication_cable', 'dead_wire', 'vegetation'];
+        const allKeys = Array.from(new Set([...defaultKeys, ...Object.keys(normalizedDist)]));
         
-        const percentages = calculateDistributionPercentages(dist);
+        const percentages = calculateDistributionPercentages(normalizedDist);
         
         for (const key of allKeys) {
-            const val = (dist && dist[key]) || 0;
+            const val = normalizedDist[key] || 0;
             const pct = percentages[key] || 0;
             const labelText = formatWireClass(key);
             
@@ -383,12 +389,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             const publicBadgeHtml = Number(item.is_public) === 1
                 ? ` <span class="recent-public-badge">${escapeHtml('Public tip')}</span>`
                 : '';
+            const vniBadgeHtml = typeof item.vni === 'number'
+                ? ` <span style="opacity:0.8;">• VNI ${item.vni.toFixed(2)}</span>`
+                : '';
             
             row.innerHTML = `
                 <img src="${thumbUrl ? escapeHtml(thumbUrl) : fallbackSvg}" loading="lazy" decoding="async" class="recent-thumb" alt="${escapeHtml(displayName)}" onerror="this.src='${fallbackSvg}'">
                 <div class="recent-info">
                     <span class="recent-filename" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
-                    <span class="recent-time">${escapeHtml(timeAgo)}${publicBadgeHtml}</span>
+                    <span class="recent-time">${escapeHtml(timeAgo)}${publicBadgeHtml}${vniBadgeHtml}</span>
                 </div>
                 ${pillHtml}
             `;

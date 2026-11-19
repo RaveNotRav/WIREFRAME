@@ -132,13 +132,17 @@
 
     /* Semantic Colors - Wire Classes (Including legacy & shorthand aliases) */
     --wire-power: #DC2626;
+    --wire-power_distribution_line: #DC2626;
     --wire-power_line: #DC2626;
     --wire-telecom: #059669;
+    --wire-communication_cable: #059669;
     --wire-telecom_cable: #059669;
     --wire-fiber: #2563EB;
     --wire-fiber_optic: #2563EB;
     --wire-dead: #9333EA;
+    --wire-dead_wire: #9333EA;
     --wire-dead_abandoned: #9333EA;
+    --wire-vegetation: #059669;
 
     /* Hero Image Overlays (Light Theme) */
     --hero-overlay-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(228, 233, 240, 0.85) 55%, rgba(219, 234, 254, 0.78) 100%);
@@ -296,13 +300,17 @@
 
     /* Semantic Colors - Wire Classes */
     --wire-power: #DC2626;
+    --wire-power_distribution_line: #DC2626;
     --wire-power_line: #DC2626;
     --wire-telecom: #059669;
+    --wire-communication_cable: #059669;
     --wire-telecom_cable: #059669;
     --wire-fiber: #2563EB;
     --wire-fiber_optic: #2563EB;
     --wire-dead: #9333EA;
+    --wire-dead_wire: #9333EA;
     --wire-dead_abandoned: #9333EA;
+    --wire-vegetation: #34D399;
 
     /* Hero Image Overlays (Dark Theme Cobalt / HUD) */
     --hero-overlay-gradient: linear-gradient(135deg, rgba(11, 15, 23, 0.92) 0%, rgba(30, 58, 138, 0.78) 55%, rgba(11, 15, 23, 0.88) 100%);

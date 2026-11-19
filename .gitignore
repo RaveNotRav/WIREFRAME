@@ -16,10 +16,12 @@ uploads/*
 .env
 *.pt
 _quarantine/
+_joanna_ref/
 out/
 /audit_*
 /scratch_*.txt
-datasets/
+datasets/*
+!datasets/README.md
 archive/
 
 passwords*.txt

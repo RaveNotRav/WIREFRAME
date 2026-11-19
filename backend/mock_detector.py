@@ -11,10 +11,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 MOCK_CLASS_NAMES: dict[int, str] = {
-    0: "power_line",
-    1: "telecom_cable",
-    2: "fiber_optic",
-    3: "dead_abandoned",
+    0: "power_distribution_line",
+    1: "communication_cable",
+    2: "dead_wire",
+    3: "vegetation",
     4: "pole",
 }
 

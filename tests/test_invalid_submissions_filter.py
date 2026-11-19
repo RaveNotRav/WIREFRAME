@@ -109,8 +109,8 @@ def test_stats_and_ranking_exclude_rejected_and_no_wires(_init_settings):
     stats = stats_res.json()
     assert stats["kpis"]["total_analyses"] == 1
     assert stats["kpis"]["average_risk_score"] == 80.0
-    assert stats["distribution"]["power_line"] == 1
-    assert stats["distribution"]["telecom_cable"] == 0
+    assert stats["distribution"]["power_distribution_line"] == 1
+    assert stats["distribution"]["communication_cable"] == 0
 
     # Ranking endpoint
     ranking_res = client_admin.get("/api/mpc/ranking?include_mock=true")
