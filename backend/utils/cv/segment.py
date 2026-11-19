@@ -47,15 +47,15 @@ def get_inference_params() -> dict[str, Any]:
 
     env_conf = os.getenv("WIREFRAME_CONF")
     try:
-        conf = float(env_conf) if env_conf is not None else float(params.get("conf", 0.25))
+        conf = float(env_conf) if env_conf is not None else float(params.get("conf", 0.08))
     except (ValueError, TypeError):
-        conf = 0.25
+        conf = 0.08
 
     env_iou = os.getenv("WIREFRAME_IOU")
     try:
-        iou = float(env_iou) if env_iou is not None else float(params.get("iou", 0.7))
+        iou = float(env_iou) if env_iou is not None else float(params.get("iou", 0.70))
     except (ValueError, TypeError):
-        iou = 0.7
+        iou = 0.70
 
     env_device = os.getenv("WIREFRAME_DEVICE")
     device = env_device if env_device is not None else params.get("device", "auto")
@@ -226,9 +226,18 @@ def sliced_predict(
     if device and str(device).lower() != "auto":
         predict_kwargs["device"] = device
 
+    full_results = []
     with _INFERENCE_LOCK:
         if hasattr(model, "predict"):
             results = model.predict(crops, **predict_kwargs)
+            # Also run a full-frame 1024px pass when the image spans multiple tiles so long continuous
+            # power/telecom spans are never missed by tile boundary clipping
+            if len(crops) > 1:
+                try:
+                    full_kwargs = dict(predict_kwargs, imgsz=1024)
+                    full_results = model.predict([bgr_image], **full_kwargs) or []
+                except Exception:
+                    full_results = []
         else:
             # Support callable fake models in unit tests that accept either a list of crops or single crop
             try:
@@ -238,7 +247,7 @@ def sliced_predict(
             except Exception:
                 results = [model(c, **predict_kwargs)[0] for c in crops]
 
-    if not results:
+    if not results and not full_results:
         return SegmentationResult(mask_available=False)
 
     names: dict[int, str] = {}
@@ -249,7 +258,11 @@ def sliced_predict(
     tile_dets: list[dict[str, Any]] = []
     any_masks = False
 
-    for res_idx, r in enumerate(results):
+    all_pass_results = list(zip(results or [], offsets))
+    for fr in full_results:
+        all_pass_results.append((fr, (0, 0, img_w, img_h)))
+
+    for r, (x0, y0, cw, ch) in all_pass_results:
         if r is None:
             continue
         raw_r_names = getattr(r, "names", None)
@@ -260,7 +273,6 @@ def sliced_predict(
             continue
 
         any_masks = True
-        x0, y0, cw, ch = offsets[res_idx] if res_idx < len(offsets) else (0, 0, img_w, img_h)
         cls_arr = r.boxes.cls.cpu().numpy().astype(int).tolist()
         conf_arr = r.boxes.conf.cpu().numpy().tolist()
         masks_data = r.masks.data.cpu().numpy()
@@ -319,7 +331,10 @@ def segment_image(
     bgr_image = np.ascontiguousarray(cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
 
     params = get_inference_params()
-    use_tiled = tiled if tiled is not None else bool(params.get("tiled", False))
+    if tiled is not None:
+        use_tiled = tiled
+    else:
+        use_tiled = bool(params.get("tiled", False))
 
     if use_tiled:
         return sliced_predict(

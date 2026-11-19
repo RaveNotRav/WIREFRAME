@@ -1,0 +1,8 @@
+{
+  "comment": "v2.17 probability fusion: equal weights (centerline metrics on the 22 validation photos, docs/thesis/results/v217_fusion_val.json)",
+  "members": [
+    {"weights": "models/wirenet-r34.pt", "weight": 1},
+    {"weights": "models/v212_mitb1.pt", "weight": 1},
+    {"weights": "models/v212_convnext_t.pt", "weight": 1}
+  ]
+}

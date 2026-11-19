@@ -76,6 +76,8 @@ async def lifespan(app: FastAPI):
             logger.warning("WIREFRAME_MOCK=1 - running with mock detector")
             main_state.set_model_available(True)
         else:
+            from backend.utils import weights_downloader
+            weights_downloader.ensure_in_background()
             main_state.set_model(None)
             main_state.load_model_once(model_path)
 
@@ -280,6 +282,11 @@ async def health() -> dict[str, Any]:
         tiled_mode = False
     from backend.utils.cv.types import CANONICAL_CONTEXT_CLASSES, CANONICAL_WIRE_CLASSES
     canonical_classes = [*CANONICAL_WIRE_CLASSES, *CANONICAL_CONTEXT_CLASSES]
+    try:
+        from backend.utils import weights_downloader
+        downloads_status = weights_downloader.status()
+    except Exception:
+        downloads_status = {}
     resp: dict[str, Any] = {
         "status": "ok",
         "ready": ready,
@@ -291,6 +298,7 @@ async def health() -> dict[str, Any]:
         "wirenet_weights_present": wirenet_weights_present,
         "tiled_mode": tiled_mode,
         "canonical_classes": canonical_classes,
+        "downloads": downloads_status,
     }
     if is_mock:
         resp["mock_scenario"] = get_mock_scenario()
@@ -339,10 +347,24 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
         wires_data = []
         wire_crs_10_list: list[float] = []
         analysis_flags: list[str] = []
+        veg_count_from_params = 0
+        class_counts = {
+            "power_distribution_line": 0,
+            "communication_cable": 0,
+            "dead_wire": 0,
+            "vegetation": 0,
+            "pole": 1 if data.get("pole_bbox_json") else 0,
+        }
+        from backend.utils.cv.types import normalize_wire_class
 
         for w in wires_rows:
             wd = dict(w)
             p_dict = parse_params_json(wd.get("params_json"))
+            if isinstance(p_dict.get("vegetation_count"), int):
+                veg_count_from_params = max(veg_count_from_params, p_dict["vegetation_count"])
+            canon_cls = normalize_wire_class(wd.get("class_name") or "")
+            if canon_cls in class_counts:
+                class_counts[canon_cls] += 1
             crs_10 = p_dict.get("crs_10")
             paper_level = p_dict.get("paper_risk_level")
             w_flags = p_dict.get("flags", [])
@@ -384,6 +406,9 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
             if fl not in analysis_flags:
                 analysis_flags.append(fl)
         data["flags"] = analysis_flags
+        if veg_count_from_params > class_counts["vegetation"]:
+            class_counts["vegetation"] = veg_count_from_params
+        data["class_counts"] = class_counts
         
         # ground_clearance_status mapping
         # clearance_ok encoding without a migration: 1 = ok, 0 = below, 2 = marginal, NULL = no clearance.

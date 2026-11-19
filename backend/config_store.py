@@ -162,8 +162,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "plants": "vegetation",
     },
     "inference_params": {
-        "conf": 0.25,
-        "iou": 0.7,
+        "conf": 0.08,
+        "iou": 0.70,
         "imgsz": 1024,
         "retina_masks": True,
         "device": "auto",

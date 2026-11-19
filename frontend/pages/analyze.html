@@ -721,7 +721,7 @@
         <!-- Original vs Annotated Slider -->
         <div class="bento-tile bento-xl neu-raised telemetry-tile" id="tile-image" style="display: none;">
             <div class="bento-tile-header">
-                <h3 class="bento-tile-title">Image Analysis</h3>
+                <h3 class="bento-tile-title">Image Analysis (Unified Overlay)</h3>
             </div>
             <div class="bento-tile-body">
                 <div id="analysis-metadata" style="display: none; box-sizing: border-box; max-width: 100%; padding: 10px; border-radius: var(--radius-control); margin-bottom: 10px; font-size: 0.9rem; text-align: left; width: 100%; overflow-wrap: anywhere;">
@@ -732,6 +732,13 @@
                     </div>
                 </div>
                 <img id="img-annotated" decoding="async" style="width: 100%; max-height: 400px; object-fit: contain; border-radius: var(--radius-control); background: #000;" alt="Annotated Image" crossorigin="use-credentials">
+                <div id="overlay-class-legend" aria-label="Detected classes legend" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; padding: 8px 12px; border-radius: var(--radius-control); background: var(--surface-instrument-card); border: 1px solid var(--surface-instrument-border-subtle); font-family: var(--font-family-mono); font-size: 0.78rem;">
+                    <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--wire-power_distribution_line, #ef4444);"></span>Power Lines: <strong id="legend-count-power">0</strong></span>
+                    <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--wire-communication_cable, #3b82f6);"></span>Communication: <strong id="legend-count-comm">0</strong></span>
+                    <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--wire-dead_wire, #f59e0b);"></span>Dead Wire: <strong id="legend-count-dead">0</strong></span>
+                    <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--wire-vegetation, #10b981);"></span>Vegetation: <strong id="legend-count-veg">0</strong></span>
+                    <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--telemetry-cyan, #38bdf8);"></span>Poles: <strong id="legend-count-pole">0</strong></span>
+                </div>
                 <div class="bento-tile-footer">
                     <button class="neu-button neu-raised-sm" id="btn-calibrate" style="display: none;">Manual Calibration Tool</button>
                 </div>

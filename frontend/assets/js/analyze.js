@@ -1017,7 +1017,56 @@ export function populateResultTiles(analysis) {
     updateTilesFromJson(analysis);
 }
 
+export function updateOverlayLegendCounts(analysis) {
+    const rawCounts = (analysis && typeof analysis.class_counts === 'object' && analysis.class_counts)
+        ? analysis.class_counts
+        : null;
+
+    let powerCount = 0;
+    let commCount = 0;
+    let deadCount = 0;
+    let vegCount = 0;
+    let poleCount = 0;
+
+    if (rawCounts) {
+        powerCount = Number(rawCounts.power_distribution_line) || 0;
+        commCount = Number(rawCounts.communication_cable) || 0;
+        deadCount = Number(rawCounts.dead_wire) || 0;
+        vegCount = Number(rawCounts.vegetation) || 0;
+        poleCount = Number(rawCounts.pole) || 0;
+    } else if (analysis) {
+        if (Array.isArray(analysis.wires)) {
+            analysis.wires.forEach(w => {
+                const cls = String(w?.class_name || w?.name || '').toLowerCase();
+                if (cls === 'power_distribution_line' || cls === 'power_line') {
+                    powerCount += 1;
+                } else if (cls === 'communication_cable' || cls === 'telecom_cable' || cls === 'fiber_optic') {
+                    commCount += 1;
+                } else if (cls === 'dead_wire' || cls === 'dead_abandoned') {
+                    deadCount += 1;
+                } else if (cls === 'vegetation') {
+                    vegCount += 1;
+                }
+            });
+        }
+        if (analysis.pole_bbox_json) {
+            poleCount = 1;
+        }
+    }
+
+    const setElText = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(val);
+    };
+    setElText('legend-count-power', powerCount);
+    setElText('legend-count-comm', commCount);
+    setElText('legend-count-dead', deadCount);
+    setElText('legend-count-veg', vegCount);
+    setElText('legend-count-pole', poleCount);
+}
+
 export function updateTilesFromJson(analysis) {
+    updateOverlayLegendCounts(analysis);
     const pres = safetyPresentation(analysis);
 
     // Safety

@@ -269,20 +269,29 @@ def test_inference_settings_env_and_defaults(monkeypatch):
     monkeypatch.delenv("WIREFRAME_CONF", raising=False)
     monkeypatch.delenv("WIREFRAME_IOU", raising=False)
     monkeypatch.delenv("WIREFRAME_DEVICE", raising=False)
+    monkeypatch.delenv("WIREFRAME_TILED", raising=False)
 
     params = get_inference_params()
-    assert params["conf"] == 0.25
+    assert params["conf"] == 0.08
     assert params["iou"] == 0.70
+    assert params["imgsz"] == 1024
+    assert params["tiled"] is False
+    assert params["tile_size"] == 640
+    assert params["tile_overlap"] == 0.3
+    assert params["tile_iou"] == 0.9
+    assert params["max_det"] == 1000
     assert params["device"] == "auto"
 
     monkeypatch.setenv("WIREFRAME_CONF", "0.45")
     monkeypatch.setenv("WIREFRAME_IOU", "0.65")
     monkeypatch.setenv("WIREFRAME_DEVICE", "cpu")
+    monkeypatch.setenv("WIREFRAME_TILED", "1")
 
     params2 = get_inference_params()
     assert params2["conf"] == 0.45
     assert params2["iou"] == 0.65
     assert params2["device"] == "cpu"
+    assert params2["tiled"] is True
 
 
 def test_real_path_end_to_end_via_testclient_without_weights(tmp_path, monkeypatch, caplog, client_admin):
@@ -512,12 +521,15 @@ def test_tiled_sliced_predict_stitches_wire_across_tile_seams():
     assert x2 >= 1095
 
 
-def test_wirenet_ensemble_metadata_and_graceful_fallback():
+def test_wirenet_ensemble_metadata_and_graceful_fallback(tmp_path):
     """Verify load_wirenet_ensemble_metadata loads v212_ensemble.json, v212_convnext_t.arch.json,
     and v212_mitb1.arch.json from backend/models/ and degrades gracefully when .pt files are absent.
     """
+    import shutil
+    from pathlib import Path
     from backend.utils.cv.types import SegmentationResult
     from backend.utils.cv.wirenet import (
+        DEFAULT_MODELS_DIR,
         is_wirenet_available,
         load_wirenet_ensemble_metadata,
         refine_detections_with_wirenet,
@@ -533,9 +545,13 @@ def test_wirenet_ensemble_metadata_and_graceful_fallback():
     assert meta["training_logs_present"]["v212_convnext_t"] is True
     assert meta["training_logs_present"]["v212_mitb1"] is True
 
-    # Since .pt files are not shipped in git, is_wirenet_available() is False and refine_detections_with_wirenet
-    # returns the original SegmentationResult untouched without error
-    assert is_wirenet_available() is False
+    # Test graceful fallback when .pt files are absent in an isolated temp models dir
+    empty_models = tmp_path / "models_no_pt"
+    empty_models.mkdir()
+    for jf in Path(DEFAULT_MODELS_DIR).glob("v212_*.json"):
+        shutil.copy2(jf, empty_models / jf.name)
+
+    assert is_wirenet_available(empty_models) is False
     dummy_mask = np.ones((100, 100), dtype=np.uint8) * 255
     seg_in = SegmentationResult(
         mask_available=True,
@@ -546,7 +562,7 @@ def test_wirenet_ensemble_metadata_and_graceful_fallback():
         names={0: "power_distribution_line"},
     )
     rgb = np.zeros((100, 100, 3), dtype=np.uint8)
-    seg_out = refine_detections_with_wirenet(rgb, seg_in)
+    seg_out = refine_detections_with_wirenet(rgb, seg_in, models_dir=empty_models)
     assert seg_out is seg_in
     assert len(seg_out.masks) == 1
 
@@ -737,6 +753,132 @@ def test_health_diagnostics_and_real_dataset_smoke_check(tmp_path, monkeypatch):
     assert Path(row["annotated_path"]).stat().st_size > 0
     assert row["spectrum_path"] and Path(row["spectrum_path"]).is_file()
     assert Path(row["spectrum_path"]).stat().st_size > 0
+
+
+def test_weights_downloader_sha256_verification_and_normalized_classes(tmp_path, monkeypatch):
+    """Verify automatic model weight downloader & SHA-256 verifier (single & multi-part files,
+    local alias mapping for wireframe_seg.pt, checksum mismatch rejection, existing file preservation)
+    and verify normalize_wire_class maps all 4 canonical classes.
+    """
+    from functools import partial
+    import hashlib
+    import http.server
+    import threading
+    from backend.utils import weights_downloader as wd
+    from backend.utils.cv.types import normalize_wire_class
+
+    # 1. Verify normalize_wire_class maps all 4 classes cleanly
+    assert normalize_wire_class("Vegetation") == "vegetation"
+    assert normalize_wire_class("abandoned-wire") == "dead_wire"
+    assert normalize_wire_class("power-distribution-lines") == "power_distribution_line"
+    assert normalize_wire_class("telecom-cable") == "communication_cable"
+
+    # 2. Spin up local HTTP mirror serving a single-part weight (with local_alias wireframe_seg.pt)
+    #    and a 2-part weight
+    mirror_dir = tmp_path / "mirror"
+    mirror_dir.mkdir()
+    data_yolo = b"yolo11m-seg-weights" * 200
+    data_multi = b"convnext-part-000-and-001" * 300
+    (mirror_dir / "wireframe-yolo11m-seg.pt").write_bytes(data_yolo)
+    mid = len(data_multi) // 2
+    (mirror_dir / "v212_convnext_t.pt.000").write_bytes(data_multi[:mid])
+    (mirror_dir / "v212_convnext_t.pt.001").write_bytes(data_multi[mid:])
+
+    fake_required = (
+        wd.WeightFile(
+            "wireframe-yolo11m-seg.pt",
+            len(data_yolo),
+            hashlib.sha256(data_yolo).hexdigest(),
+            local_alias="wireframe_seg.pt",
+        ),
+        wd.WeightFile(
+            "v212_convnext_t.pt",
+            len(data_multi),
+            hashlib.sha256(data_multi).hexdigest(),
+            parts=2,
+        ),
+    )
+    monkeypatch.setattr(wd, "REQUIRED", fake_required)
+
+    handler = partial(http.server.SimpleHTTPRequestHandler, directory=str(mirror_dir))
+    handler.log_message = lambda *a, **k: None
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base_url = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    try:
+        target_models = tmp_path / "models"
+        assert len(wd.missing(target_models)) == 2
+        failed = wd.ensure(target_models, base_url=base_url, verify_existing_hashes=True)
+        assert failed == []
+
+        # Both wireframe-yolo11m-seg.pt and its mapped alias wireframe_seg.pt exist and match
+        assert (target_models / "wireframe-yolo11m-seg.pt").read_bytes() == data_yolo
+        assert (target_models / "wireframe_seg.pt").read_bytes() == data_yolo
+        # Multi-part file joined and verified
+        assert (target_models / "v212_convnext_t.pt").read_bytes() == data_multi
+
+        rep = wd.verify_all(target_models, check_hash=True)
+        assert rep["wireframe-yolo11m-seg.pt"]["verified"] is True
+        assert rep["v212_convnext_t.pt"]["verified"] is True
+
+        # Tamper with mirror file and verify checksum mismatch is rejected on a fresh dir
+        (mirror_dir / "wireframe-yolo11m-seg.pt").write_bytes(b"corrupted" * 200)
+        bad_models = tmp_path / "bad_models"
+        failed_bad = wd.ensure(bad_models, base_url=base_url)
+        assert "wireframe-yolo11m-seg.pt" in failed_bad
+        assert not (bad_models / "wireframe-yolo11m-seg.pt").exists()
+    finally:
+        srv.shutdown()
+
+
+def test_render_unified_overlay_and_class_counts():
+    """Verify render_unified_overlay draws masks, contours, pole bbox, span chords, sag & clearance lines."""
+    from backend.utils.cv.visualize import render_unified_overlay
+
+    img = np.full((240, 320, 3), 255, dtype=np.uint8)
+    mask_power = np.zeros((240, 320), dtype=np.uint8)
+    mask_power[80:86, 40:260] = 1
+    mask_veg = np.zeros((240, 320), dtype=np.uint8)
+    mask_veg[140:200, 180:250] = 1
+    mask_pole = np.zeros((240, 320), dtype=np.uint8)
+    mask_pole[40:220, 20:38] = 1
+
+    analyzed_wires = [
+        {
+            "wire_index": 0,
+            "class_name": "power_distribution_line",
+            "confidence": 0.91,
+            "mask": mask_power,
+            "bbox": [40.0, 80.0, 260.0, 86.0],
+            "polyline_json": "[(40, 80), (150, 92), (260, 82)]",
+            "sag_m": 0.55,
+            "ground_clearance_m": 5.12,
+        }
+    ]
+    vegetation_detections = [
+        {
+            "class_name": "vegetation",
+            "confidence": 0.84,
+            "mask": mask_veg,
+            "bbox": [180.0, 140.0, 250.0, 200.0],
+        }
+    ]
+    rendered = render_unified_overlay(
+        img,
+        analyzed_wires=analyzed_wires,
+        vegetation_detections=vegetation_detections,
+        pole_bbox=[20.0, 40.0, 38.0, 220.0],
+        pole_confidence=0.88,
+        pole_masks=[mask_pole],
+        meters_per_px=0.05,
+    )
+    assert rendered.shape == img.shape
+    assert rendered.dtype == np.uint8
+    # Image must have been modified with colored masks, contours, pole box, and badges
+    assert not np.array_equal(rendered, img)
+
+
 
 
 

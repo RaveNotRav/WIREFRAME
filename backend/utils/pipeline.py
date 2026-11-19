@@ -261,15 +261,15 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 with open(spec_file_nw, "wb") as f:
                     f.write(vni_res_nw.spectrum_png)
                 spectrum_path_nw = str(spec_file_nw)
-            annotated_img_nw = prep.rgb.copy()
-            if pole_bbox:
-                px1, py1, px2, py2 = [int(v) for v in pole_bbox]
-                _cv2_nw.rectangle(annotated_img_nw, (px1, py1), (px2, py2), (255, 0, 0), 2)
-                _cv2_nw.putText(annotated_img_nw, "Pole", (px1, py1 - 10), _cv2_nw.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
-            for veg in vegetation_detections:
-                vx1, vy1, vx2, vy2 = [int(v) for v in veg["bbox"]]
-                _cv2_nw.rectangle(annotated_img_nw, (vx1, vy1), (vx2, vy2), (16, 185, 129), 2)
-                _cv2_nw.putText(annotated_img_nw, "Vegetation", (vx1, max(15, vy1 - 10)), _cv2_nw.FONT_HERSHEY_SIMPLEX, 0.8, (16, 185, 129), 2)
+            from backend.utils.cv.visualize import render_unified_overlay
+            annotated_img_nw = render_unified_overlay(
+                prep.rgb,
+                analyzed_wires=[],
+                vegetation_detections=vegetation_detections,
+                pole_bbox=pole_bbox,
+                pole_confidence=best_pole_conf if best_pole_conf > 0 else None,
+                pole_masks=pole_masks,
+            )
             annotated_file_nw = base_outputs_nw / f"analysis_{analysis_id}_annotated.jpg"
             _cv2_nw.imwrite(str(annotated_file_nw), _cv2_nw.cvtColor(annotated_img_nw, _cv2_nw.COLOR_RGB2BGR))
             annotated_path_nw = str(annotated_file_nw)
@@ -380,6 +380,8 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             params["paper_risk_level"] = paper_risk_level
             params["delta_lim"] = delta_lim
             params["flags"] = combined_flags
+            params["vegetation_count"] = len(vegetation_detections)
+            params["pole_count"] = 1 if pole_bbox is not None else 0
 
             ew = evaluate_wire(
                 class_name=cls_key,
@@ -426,27 +428,17 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 f.write(vni_res.spectrum_png)
             spectrum_path = str(spec_file)
 
-        # Save annotated image
-        annotated_img = prep.rgb.copy()
-        if pole_bbox:
-            px1, py1, px2, py2 = [int(v) for v in pole_bbox]
-            cv2.rectangle(annotated_img, (px1, py1), (px2, py2), (255, 0, 0), 2)
-            cv2.putText(annotated_img, "Pole", (px1, py1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
-
-        for veg in vegetation_detections:
-            vx1, vy1, vx2, vy2 = [int(v) for v in veg["bbox"]]
-            cv2.rectangle(annotated_img, (vx1, vy1), (vx2, vy2), (16, 185, 129), 2)
-            cv2.putText(annotated_img, "Vegetation", (vx1, max(15, vy1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (16, 185, 129), 2)
-            
-        for w in analyzed_wires:
-            bx1, by1, bx2, by2 = [int(v) for v in w["bbox"]]
-            cv2.rectangle(annotated_img, (bx1, by1), (bx2, by2), (0, 255, 0), 2)
-            cv2.putText(annotated_img, w["class_name"], (bx1, by1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-            polyline = ast.literal_eval(w["centerline_json"])
-            if len(polyline) > 1:
-                pts = np.round(polyline).astype(np.int32).reshape(-1, 1, 2)
-                cv2.polylines(annotated_img, [pts], isClosed=False, color=(0, 0, 255), thickness=2)
-                    
+        # Save unified all-in-one annotated overlay image (wires + poles + vegetation + sag/clearance)
+        from backend.utils.cv.visualize import render_unified_overlay
+        annotated_img = render_unified_overlay(
+            prep.rgb,
+            analyzed_wires=analyzed_wires,
+            vegetation_detections=vegetation_detections,
+            pole_bbox=pole_bbox,
+            pole_confidence=best_pole_conf if best_pole_conf > 0 else None,
+            pole_masks=pole_masks,
+            meters_per_px=scale_res.meters_per_px,
+        )
         annotated_file = base_outputs / f"analysis_{analysis_id}_annotated.jpg"
         cv2.imwrite(str(annotated_file), cv2.cvtColor(annotated_img, cv2.COLOR_RGB2BGR))
         annotated_path = str(annotated_file)
