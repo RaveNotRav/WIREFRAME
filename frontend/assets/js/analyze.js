@@ -96,6 +96,7 @@ if (typeof document !== 'undefined') {
         setupGPSHandlers();
         setupInAppBrowserBanner();
         setupCalibrationTool();
+        setupOverlayComparisonToggle();
         setupDecimalValidation();
         updateGlobalStepper('upload');
         // Check if we are viewing an existing analysis
@@ -978,6 +979,95 @@ export function renderTerminalAnalysisState(analysis, events = null) {
     }
 }
 
+let currentImageViewMode = 'overlay';
+
+export function setOverlayComparisonMode(mode) {
+    currentImageViewMode = mode === 'original' ? 'original' : 'overlay';
+    const btnOverlay = document.getElementById('btn-view-overlay');
+    const btnOrig = document.getElementById('btn-view-original');
+    if (btnOverlay) {
+        btnOverlay.className = `neu-button ${currentImageViewMode === 'overlay' ? 'neu-pressed' : 'neu-flat'}`;
+    }
+    if (btnOrig) {
+        btnOrig.className = `neu-button ${currentImageViewMode === 'original' ? 'neu-pressed' : 'neu-flat'}`;
+    }
+    if (currentAnalysis && currentAnalysis.id) {
+        const imgEl = document.getElementById('img-annotated');
+        const ts = new Date().getTime();
+        if (imgEl) {
+            imgEl.src = currentImageViewMode === 'original'
+                ? `/api/analysis/${currentAnalysis.id}/original?t=${ts}`
+                : `/api/analysis/${currentAnalysis.id}/overlay?t=${ts}`;
+        }
+    }
+    highlightWireOnCanvas(null);
+}
+
+function setupOverlayComparisonToggle() {
+    document.getElementById('btn-view-overlay')?.addEventListener('click', () => setOverlayComparisonMode('overlay'));
+    document.getElementById('btn-view-original')?.addEventListener('click', () => setOverlayComparisonMode('original'));
+}
+
+function parseCenterlinePoints(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw !== 'string') return [];
+    const pts = [];
+    const re = /\(\s*([0-9.+-]+)\s*,\s*([0-9.+-]+)\s*\)|\[\s*([0-9.+-]+)\s*,\s*([0-9.+-]+)\s*\]/g;
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+        const x = Number(m[1] ?? m[3]);
+        const y = Number(m[2] ?? m[4]);
+        if (!Number.isNaN(x) && !Number.isNaN(y)) pts.push([x, y]);
+    }
+    return pts;
+}
+
+export function highlightWireOnCanvas(wireObj, index = 0) {
+    const canvas = document.getElementById('overlay-highlight-canvas');
+    const img = document.getElementById('img-annotated');
+    if (!canvas || !img || typeof canvas.getContext !== 'function') return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const cw = img.clientWidth || 0;
+    const ch = img.clientHeight || 0;
+    if (cw <= 0 || ch <= 0) return;
+    if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw;
+        canvas.height = ch;
+    }
+    ctx.clearRect(0, 0, cw, ch);
+    if (!wireObj || !currentAnalysis) return;
+
+    const pts = parseCenterlinePoints(wireObj.centerline_json || wireObj.polyline);
+    if (pts.length < 2) return;
+
+    const natW = Number(currentAnalysis.width) || img.naturalWidth || cw;
+    const natH = Number(currentAnalysis.height) || img.naturalHeight || ch;
+    const scale = Math.min(cw / natW, ch / natH);
+    const offX = (cw - natW * scale) * 0.5;
+    const offY = (ch - natH * scale) * 0.5;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    pts.forEach(([px, py], idxPt) => {
+        const sx = offX + px * scale;
+        const sy = offY + py * scale;
+        if (idxPt === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+    });
+    ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+    ctx.lineWidth = 8;
+    ctx.stroke();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+}
+
 export function populateResultTiles(analysis) {
     if (!analysis || analysis.status === 'rejected' || analysis.status === 'error' || analysis.status === 'interrupted') return;
 
@@ -991,6 +1081,12 @@ export function populateResultTiles(analysis) {
     // Add timestamp query param to force reload if re-processed (e.g. calibration)
     const ts = new Date().getTime();
     document.getElementById('img-annotated').src = `/api/analysis/${analysis.id}/overlay?t=${ts}`;
+    currentImageViewMode = 'overlay';
+    const btnOverlay = document.getElementById('btn-view-overlay');
+    const btnOrig = document.getElementById('btn-view-original');
+    if (btnOverlay) btnOverlay.className = 'neu-button neu-pressed';
+    if (btnOrig) btnOrig.className = 'neu-button neu-flat';
+    highlightWireOnCanvas(null);
     
     document.getElementById('tile-disclosure').style.display = 'block';
 
@@ -1027,6 +1123,7 @@ export function updateOverlayLegendCounts(analysis) {
     let deadCount = 0;
     let vegCount = 0;
     let poleCount = 0;
+    let structCount = 0;
 
     if (rawCounts) {
         powerCount = Number(rawCounts.power_distribution_line) || 0;
@@ -1034,6 +1131,7 @@ export function updateOverlayLegendCounts(analysis) {
         deadCount = Number(rawCounts.dead_wire) || 0;
         vegCount = Number(rawCounts.vegetation) || 0;
         poleCount = Number(rawCounts.pole) || 0;
+        structCount = (Number(rawCounts.crossarm) || 0) + (Number(rawCounts.insulator) || 0);
     } else if (analysis) {
         if (Array.isArray(analysis.wires)) {
             analysis.wires.forEach(w => {
@@ -1063,6 +1161,7 @@ export function updateOverlayLegendCounts(analysis) {
     setElText('legend-count-dead', deadCount);
     setElText('legend-count-veg', vegCount);
     setElText('legend-count-pole', poleCount);
+    setElText('legend-count-struct', structCount);
 }
 
 export function updateTilesFromJson(analysis) {
@@ -1222,19 +1321,34 @@ export function updateTilesFromJson(analysis) {
             const paperCrsText = typeof w.crs_10 === 'number'
                 ? ` | Structural/Paper CRS: ${w.crs_10.toFixed(2)}/10${w.paper_risk_level ? ` (${escapeHtml(w.paper_risk_level)})` : ''}`
                 : '';
+            const vegDistStr = typeof w.vegetation_distance_m === 'number'
+                ? ` | Veg Dist: ${w.vegetation_distance_m.toFixed(2)}m`
+                : (typeof w.vegetation_distance_px === 'number' ? ` | Veg Dist: ${w.vegetation_distance_px.toFixed(0)}px` : '');
+            const anchorCount = Array.isArray(w.anchor_attachments) ? w.anchor_attachments.length : 0;
+            const anchorBadge = anchorCount > 0 ? ` | Anchors: ${anchorCount}` : (w.dead_wire_candidate ? ' | Unanchored Candidate' : '');
             const flagsText = (Array.isArray(w.flags) && w.flags.length > 0)
                 ? `<div style="font-size:0.75rem;color:var(--text-muted);">Flags: ${escapeHtml(w.flags.join(', '))}</div>`
                 : '';
+            div.style.cursor = 'pointer';
+            div.setAttribute('data-wire-index', String(i + 1));
+            div.addEventListener('mouseenter', () => {
+                div.style.borderColor = color;
+                highlightWireOnCanvas(w, i + 1);
+            });
+            div.addEventListener('mouseleave', () => {
+                div.style.borderColor = '';
+                highlightWireOnCanvas(null);
+            });
             div.innerHTML = `
                 <div>
                     <span style="display:inline-block;width:12px;height:12px;background:${color};border-radius:50%;margin-right:8px;"></span>
                     <strong>Wire ${i+1} (${escapeHtml(formatWireClass(wireClassName))})</strong>
-                    <div style="font-size:0.85rem;color:var(--text-muted);">Confidence: ${formatConfidence(w?.confidence)}</div>
+                    <div style="font-size:0.85rem;color:var(--text-muted);">Confidence: ${formatConfidence(w?.confidence)}${anchorBadge}</div>
                     ${flagsText}
                 </div>
                 <div style="text-align:right;">
                     <div>${clearanceCrsDisplay}${paperCrsText}</div>
-                    <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${sagLabel}</div>
+                    <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${sagLabel}${vegDistStr}</div>
                 </div>
             `;
             wireFragment.appendChild(div);

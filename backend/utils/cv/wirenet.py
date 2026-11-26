@@ -564,10 +564,11 @@ def run_hybrid_ensemble_segmentation(
                             "bbox": _mask_bbox(comp_mask),
                         })
 
-    # 5. Scene-context gating (ADE20K UperNet-ConvNeXt-Tiny)
+    # 5. Scene-context gating & structural context extraction (ADE20K UperNet-ConvNeXt-Tiny)
     kept_strands = list(strands)
     kept_veg = list(veg_dets)
-    if use_scene_gates and (kept_strands or kept_veg):
+    building_boxes_orig: list[dict[str, Any]] = []
+    if use_scene_gates and (kept_strands or kept_veg or pole_boxes_orig):
         scene_parser = _get_cached_scene_parser(mdir, dev)
         if scene_parser is not None:
             try:
@@ -597,11 +598,22 @@ def run_hybrid_ensemble_segmentation(
                             filtered_veg.append(vd)
                     kept_veg = filtered_veg
 
-                    # If YOLO pole detector didn't find a pole, check ADE20K scene pole context
+                    ctx = scene_parser.context(lab_orig)
                     if not pole_boxes_orig:
-                        ctx = scene_parser.context(lab_orig)
                         for pbox in ctx.get("poles", []):
                             pole_boxes_orig.append({"bbox": [float(v) for v in pbox], "confidence": 0.45})
+                    b_mask_full = scene_parser.building_mask(lab_orig)
+                    for bbox in ctx.get("buildings", []):
+                        bx1, by1, bx2, by2 = [max(0, int(round(v))) for v in bbox[:4]]
+                        bm = np.zeros((orig_h, orig_w), dtype=bool)
+                        bm[min(orig_h, by1) : min(orig_h, by2), min(orig_w, bx1) : min(orig_w, bx2)] = b_mask_full[
+                            min(orig_h, by1) : min(orig_h, by2), min(orig_w, bx1) : min(orig_w, bx2)
+                        ]
+                        building_boxes_orig.append({
+                            "bbox": [float(v) for v in bbox],
+                            "confidence": 0.60,
+                            "mask": bm if np.any(bm) else None,
+                        })
             except Exception as exc:
                 logger.warning("Scene gate skipped: %s", exc)
 
@@ -616,13 +628,33 @@ def run_hybrid_ensemble_segmentation(
         except Exception as exc:
             logger.debug("Hough pole fallback skipped: %s", exc)
 
-    # 6. Build unified SegmentationResult with canonical class names
+    # Detect crossarms and insulators around detected poles and wire attachments
+    crossarm_boxes_orig: list[dict[str, Any]] = []
+    insulator_boxes_orig: list[dict[str, Any]] = []
+    if pole_boxes_orig:
+        try:
+            from backend.utils.cv.scene import detect_crossarms_and_insulators
+
+            c_boxes, i_boxes = detect_crossarms_and_insulators(
+                rgb_image,
+                pole_boxes_orig,
+                [st.mask for st in kept_strands],
+            )
+            crossarm_boxes_orig.extend(c_boxes)
+            insulator_boxes_orig.extend(i_boxes)
+        except Exception as exc:
+            logger.debug("Crossarm/insulator detection skipped: %s", exc)
+
+    # 6. Build unified 8-class SegmentationResult with canonical class names
     canonical_names: dict[int, str] = {
         0: "power_distribution_line",
         1: "communication_cable",
         2: "dead_wire",
         3: "vegetation",
         4: "pole",
+        5: "crossarm",
+        6: "insulator",
+        7: "building",
     }
     name_to_id = {v: k for k, v in canonical_names.items()}
 
@@ -669,22 +701,28 @@ def run_hybrid_ensemble_segmentation(
         out_classes.append(name_to_id["vegetation"])
         out_confs.append(round(float(vd["confidence"]), 4))
 
-    # Append pole detections
-    for pd in pole_boxes_orig:
-        pb = [float(v) for v in pd["bbox"]]
-        pm = pd.get("mask")
-        if pm is None:
-            pm_u8 = np.zeros((orig_h, orig_w), dtype=np.uint8)
-            x1, y1, x2, y2 = [max(0, int(round(v))) for v in pb[:4]]
-            pm_u8[min(orig_h, y1) : min(orig_h, y2), min(orig_w, x1) : min(orig_w, x2)] = 255
-        else:
-            pm_u8 = (pm > 0).astype(np.uint8) * 255
-        if not np.any(pm_u8):
-            continue
-        out_masks.append(pm_u8)
-        out_boxes.append(pb)
-        out_classes.append(name_to_id["pole"])
-        out_confs.append(round(float(pd.get("confidence", 0.5)), 4))
+    # Append pole, crossarm, insulator, and building detections
+    def _append_box_dets(box_dets: list[dict[str, Any]], cls_label: str) -> None:
+        for item in box_dets:
+            pb = [float(v) for v in item["bbox"]]
+            pm = item.get("mask")
+            if pm is None:
+                pm_u8 = np.zeros((orig_h, orig_w), dtype=np.uint8)
+                x1, y1, x2, y2 = [max(0, int(round(v))) for v in pb[:4]]
+                pm_u8[min(orig_h, y1) : min(orig_h, y2), min(orig_w, x1) : min(orig_w, x2)] = 255
+            else:
+                pm_u8 = (pm > 0).astype(np.uint8) * 255
+            if not np.any(pm_u8):
+                continue
+            out_masks.append(pm_u8)
+            out_boxes.append(pb)
+            out_classes.append(name_to_id[cls_label])
+            out_confs.append(round(float(item.get("confidence", 0.5)), 4))
+
+    _append_box_dets(pole_boxes_orig, "pole")
+    _append_box_dets(crossarm_boxes_orig, "crossarm")
+    _append_box_dets(insulator_boxes_orig, "insulator")
+    _append_box_dets(building_boxes_orig, "building")
 
     if not out_masks:
         return SegmentationResult(mask_available=False, names=canonical_names)

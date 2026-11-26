@@ -14,6 +14,7 @@ def normalize_class_name(name: str) -> str:
 
 CANONICAL_WIRE_CLASSES = ("power_distribution_line", "communication_cable", "dead_wire")
 CANONICAL_CONTEXT_CLASSES = ("vegetation",)
+CANONICAL_STRUCTURAL_CLASSES = ("pole", "crossarm", "insulator", "building", "vegetation")
 
 DEFAULT_CLASS_ALIASES: dict[str, str] = {
     # Power Line variants -> power_distribution_line
@@ -141,6 +142,20 @@ DEFAULT_CLASS_ALIASES: dict[str, str] = {
     "concrete_pole": "pole",
     "utility_post": "pole",
     "post": "pole",
+    # Structural attachment & scene classes -> crossarm, insulator, building
+    "crossarm": "crossarm",
+    "cross_arm": "crossarm",
+    "cross-arm": "crossarm",
+    "pole_crossarm": "crossarm",
+    "insulator": "insulator",
+    "insulators": "insulator",
+    "pin_insulator": "insulator",
+    "suspension_insulator": "insulator",
+    "building": "building",
+    "buildings": "building",
+    "house": "building",
+    "edifice": "building",
+    "facade": "building",
 }
 
 IGNORED_NON_WIRE_CLASSES = {
@@ -152,7 +167,6 @@ IGNORED_NON_WIRE_CLASSES = {
     "bus",
     "bicycle",
     "motorcycle",
-    "building",
     "sky",
     "background",
 }

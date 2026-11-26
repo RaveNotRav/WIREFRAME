@@ -12,7 +12,7 @@ from backend.formulas import (
     compute_safety_level,
 )
 from backend.utils.cv.types import normalize_class_name, normalize_wire_class
-from backend.utils.cv.calibration import estimate_clearance
+from backend.utils.cv.calibration import estimate_clearance, estimate_clearance_multicue
 
 logger = logging.getLogger(__name__)
 
@@ -88,13 +88,18 @@ def evaluate_wire(
     image_height: int | None,
     pec_min_map: dict[str, float],
     params_dict: dict[str, Any],
+    virtual_ground_y: float | None = None,
 ) -> dict[str, Any]:
     """Pure per-wire evaluation of clearance, status, and safety level."""
-    clear_est = estimate_clearance(lowest_y, pole_bbox, meters_per_px, image_height)
+    if virtual_ground_y is not None:
+        clear_est = estimate_clearance_multicue(lowest_y, pole_bbox, meters_per_px, image_height, virtual_ground_y)
+    else:
+        clear_est = estimate_clearance(lowest_y, pole_bbox, meters_per_px, image_height)
 
     updated_params = dict(params_dict)
     updated_params["clearance_low_m"] = clear_est["clearance_low_m"]
     updated_params["clearance_high_m"] = clear_est["clearance_high_m"]
+    updated_params["clearance_estimation_mode"] = clear_est["status"]
 
     cls_key = normalize_class_name(class_name)
     canon_key = normalize_wire_class(cls_key)

@@ -527,3 +527,105 @@ def rank_sites(sites_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return (max_score, mean_score)
         
     return sorted(sites_data, key=site_key, reverse=True)
+
+
+def compute_unified_hazard_breakdown(
+    *,
+    clearance_m: float | None,
+    pec_road_min_m: float = 5.5,
+    pec_pedestrian_min_m: float = 4.6,
+    max_wire_crs: float = 0.0,
+    max_crs_10: float = 0.0,
+    vni: float = 0.0,
+    min_veg_dist_m: float | None = None,
+    min_veg_dist_px: float | None = None,
+    dead_wire_count: int = 0,
+    free_hanging_count: int = 0,
+    wire_count: int = 0,
+    image_area_mp: float = 1.0,
+) -> dict[str, Any]:
+    """Compute a single non-contradictory 5-factor hazard breakdown (0-100 each) + PEC clearance check.
+
+    Factors:
+    1. `clearance_risk`: PEC 5.5m road / 4.6m pedestrian check (`0` if >= 5.5m, `35-65` if 4.6-5.5m, `75-100` if < 4.6m).
+    2. `catenary_sag_risk`: fused from 0-100 CRS and 0-10 Paper CRS (`max(max_wire_crs, max_crs_10 * 10)`).
+    3. `vegetation_proximity_risk`: fused from VNI and direct wire-to-vegetation minimum distance (`0m` contact = 95, `< 1.0m` = 65).
+    4. `dead_wire_risk`: based on `dead_wire` instances and topological unattached free-hanging strands.
+    5. `bundle_density_risk`: congestion / spaghetti density from wire count and spans per megapixel.
+    """
+    # 1. Clearance Risk & PEC Check
+    if clearance_m is not None and clearance_m > 0:
+        road_ok = bool(clearance_m >= pec_road_min_m)
+        ped_ok = bool(clearance_m >= pec_pedestrian_min_m)
+        if clearance_m >= pec_road_min_m + 0.5:
+            clr_risk = 5.0
+        elif clearance_m >= pec_road_min_m:
+            clr_risk = 20.0
+        elif clearance_m >= pec_pedestrian_min_m:
+            frac = (pec_road_min_m - clearance_m) / max(0.1, pec_road_min_m - pec_pedestrian_min_m)
+            clr_risk = 38.0 + 27.0 * frac
+        else:
+            deficit = min(1.0, (pec_pedestrian_min_m - clearance_m) / max(1.0, pec_pedestrian_min_m))
+            clr_risk = 75.0 + 25.0 * deficit
+    else:
+        road_ok = None
+        ped_ok = None
+        clr_risk = 15.0
+
+    # 2. Catenary Sag Risk
+    sag_risk = float(max(0.0, min(100.0, max(float(max_wire_crs or 0.0), float(max_crs_10 or 0.0) * 8.5))))
+
+    # 3. Vegetation Proximity Risk
+    veg_risk = float(max(0.0, min(100.0, float(vni or 0.0) * 60.0)))
+    if min_veg_dist_px is not None:
+        if min_veg_dist_px <= 1.0:
+            veg_risk = max(veg_risk, 90.0)
+        elif min_veg_dist_m is not None and min_veg_dist_m <= 0.6:
+            veg_risk = max(veg_risk, 75.0)
+        elif min_veg_dist_m is not None and min_veg_dist_m <= 1.5:
+            veg_risk = max(veg_risk, 50.0)
+        elif min_veg_dist_px <= 20.0:
+            veg_risk = max(veg_risk, 55.0)
+
+    # 4. Dangling / Dead Wire Risk
+    eff_dead = max(int(dead_wire_count or 0), int(free_hanging_count or 0))
+    if eff_dead == 0:
+        dead_risk = 0.0
+    elif eff_dead == 1:
+        dead_risk = 65.0
+    else:
+        dead_risk = min(100.0, 65.0 + 17.5 * (eff_dead - 1))
+
+    # 5. Bundle Density / Congestion Risk
+    mp = max(0.15, float(image_area_mp or 1.0))
+    spans_per_mp = float(wire_count) / mp
+    density_risk = min(100.0, max(0.0, (wire_count / 12.0) * 55.0 + min(45.0, spans_per_mp * 1.5)))
+
+    # Weighted composite + worst-hazard floor so critical clearance/contact is never diluted
+    weighted = (
+        0.28 * clr_risk
+        + 0.27 * sag_risk
+        + 0.20 * veg_risk
+        + 0.15 * dead_risk
+        + 0.10 * density_risk
+    )
+    peak_floor = 0.65 * max(clr_risk, sag_risk, veg_risk, dead_risk)
+    fused_score = round(max(0.0, min(100.0, max(weighted, peak_floor))), 2)
+
+    pec_check = {
+        "road_min_m": pec_road_min_m,
+        "pedestrian_min_m": pec_pedestrian_min_m,
+        "estimated_clearance_m": round(float(clearance_m), 3) if clearance_m is not None else None,
+        "road_ok": road_ok,
+        "pedestrian_ok": ped_ok,
+    }
+    breakdown = {
+        "clearance_risk": round(clr_risk, 1),
+        "catenary_sag_risk": round(sag_risk, 1),
+        "vegetation_proximity_risk": round(veg_risk, 1),
+        "dead_wire_risk": round(dead_risk, 1),
+        "bundle_density_risk": round(density_risk, 1),
+        "fused_risk_score": fused_score,
+    }
+    return {"hazard_breakdown": breakdown, "pec_clearance_check": pec_check, "fused_risk_score": fused_score}
+

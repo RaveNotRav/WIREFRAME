@@ -197,6 +197,10 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         
         wires = []
         vegetation_detections = []
+        pole_boxes_all: list[list[float]] = []
+        crossarm_boxes_all: list[list[float]] = []
+        insulator_boxes_all: list[list[float]] = []
+        building_boxes_all: list[list[float]] = []
         dead_wires = 0
         severities = []
         pole_bbox = None
@@ -211,11 +215,18 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 conf = seg_res.confidences[i] if i < len(seg_res.confidences) else 0.0
 
                 if cls_name == "pole":
+                    pole_boxes_all.append(list(seg_res.boxes[i]))
                     if i < len(seg_res.masks) and seg_res.masks[i] is not None:
                         pole_masks.append(seg_res.masks[i])
                     if conf > best_pole_conf:
                         best_pole_conf = conf
                         pole_bbox = seg_res.boxes[i]
+                elif cls_name == "crossarm":
+                    crossarm_boxes_all.append(list(seg_res.boxes[i]))
+                elif cls_name == "insulator":
+                    insulator_boxes_all.append(list(seg_res.boxes[i]))
+                elif cls_name == "building":
+                    building_boxes_all.append(list(seg_res.boxes[i]))
                 elif cls_name in CANONICAL_CONTEXT_CLASSES or cls_name == "vegetation":
                     vegetation_detections.append({
                         "class_name": "vegetation",
@@ -342,7 +353,17 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             raise InterruptedError("Cancelled before ComputingRisk")
             
         transition_state(conn, analysis_id, PipelineState.COMPUTING_RISK, "Scoring CRS, scaling sag, assigning safety")
-        from backend.formulas import compute_allowable_sag, compute_catenary_risk, compute_paper_crs
+        from backend.formulas import (
+            compute_allowable_sag,
+            compute_catenary_risk,
+            compute_paper_crs,
+            compute_unified_hazard_breakdown,
+        )
+        from backend.utils.cv.calibration import (
+            analyze_wire_anchor_topology,
+            calibrate_scale_multicue,
+            compute_wire_to_vegetation_distances,
+        )
         raw_weights = get_setting("class_weights", {}) or {}
         weights: dict[str, float] = {}
         for k, v in raw_weights.items():
@@ -355,20 +376,52 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             norm_k = normalize_class_name(k)
             pec_min_map[norm_k] = v
             pec_min_map[normalize_wire_class(norm_k)] = v
-        
-        scale_res = calibrate_scale(pole_bbox=pole_bbox, image_height=prep.original_shape[0])
-        
+
+        multicue_cal = calibrate_scale_multicue(
+            pole_bbox=pole_bbox,
+            crossarm_bboxes=crossarm_boxes_all,
+            insulator_bboxes=insulator_boxes_all,
+            image_height=prep.original_shape[0],
+            image_width=prep.original_shape[1],
+            focal_35mm=(prep.metadata or {}).get("focal_length_35mm") if hasattr(prep, "metadata") else None,
+        )
+        eff_meters_per_px = multicue_cal["meters_per_px"]
+        eff_virtual_ground_y = multicue_cal["virtual_ground_y"]
+
+        veg_dists = compute_wire_to_vegetation_distances(
+            [w["mask"] for w in analyzed_wires],
+            [vd["mask"] for vd in vegetation_detections if vd.get("mask") is not None],
+            prep.original_shape,
+            meters_per_px=eff_meters_per_px,
+        )
+        per_wire_topo, topo_summary = analyze_wire_anchor_topology(
+            analyzed_wires,
+            pole_boxes_all if pole_boxes_all else ([pole_bbox] if pole_bbox else []),
+            crossarm_boxes_all,
+            insulator_boxes_all,
+            prep.original_shape,
+        )
+
+        structural_summary = {
+            "pole": pole_boxes_all if pole_boxes_all else ([pole_bbox] if pole_bbox else []),
+            "crossarm": crossarm_boxes_all,
+            "insulator": insulator_boxes_all,
+            "building": building_boxes_all,
+            "vegetation": [list(vd["bbox"]) for vd in vegetation_detections if vd.get("bbox")],
+        }
+
         max_crs = 0.0
+        max_crs_10 = 0.0
         final_wires = []
-        for w in analyzed_wires:
+        for idx_w, w in enumerate(analyzed_wires):
             cat = w["catenary"]
             crs_raw = compute_catenary_risk(cat.sag_to_span, cat.residual)
             cls_key = normalize_wire_class(w["class_name"])
             cls_weight = weights.get(cls_key, weights.get(normalize_class_name(w["class_name"]), 1.0))
             crs_weighted = max(0.0, min(100.0, crs_raw * cls_weight))
             max_crs = max(max_crs, crs_weighted)
-            
-            span_m_est = (cat.span_px * scale_res.meters_per_px) if (scale_res.meters_per_px and cat.span_px) else None
+
+            span_m_est = (cat.span_px * eff_meters_per_px) if (eff_meters_per_px and cat.span_px) else None
             delta_lim, sag_flags = compute_allowable_sag(cls_key, span_m=span_m_est)
             crs_10, paper_risk_level = compute_paper_crs(
                 cat.sag_to_span,
@@ -376,15 +429,44 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 class_weight=cls_weight,
                 fit_failed=cat.fit_failed,
             )
+            if crs_10 is not None:
+                max_crs_10 = max(max_crs_10, float(crs_10))
+
+            v_info = veg_dists[idx_w] if idx_w < len(veg_dists) else {}
+            t_info = per_wire_topo[idx_w] if idx_w < len(per_wire_topo) else {}
+            w["vegetation_distance_px"] = v_info.get("vegetation_distance_px")
+            w["vegetation_distance_m"] = v_info.get("vegetation_distance_m")
+            w["veg_wire_point"] = v_info.get("wire_point")
+            w["veg_point"] = v_info.get("vegetation_point")
 
             params = parse_params_json(w["params_json"])
             combined_flags = list(dict.fromkeys(list(params.get("flags", [])) + list(sag_flags)))
+            if t_info.get("dead_wire_candidate") and "dead_wire_candidate" not in combined_flags:
+                combined_flags.append("dead_wire_candidate")
+            if v_info.get("vegetation_distance_px") is not None and float(v_info["vegetation_distance_px"]) <= 15.0:
+                if "vegetation_proximity" not in combined_flags:
+                    combined_flags.append("vegetation_proximity")
+
             params["crs_10"] = crs_10
             params["paper_risk_level"] = paper_risk_level
             params["delta_lim"] = delta_lim
             params["flags"] = combined_flags
             params["vegetation_count"] = len(vegetation_detections)
-            params["pole_count"] = 1 if pole_bbox is not None else 0
+            params["pole_count"] = max(len(pole_boxes_all), 1 if pole_bbox is not None else 0)
+            params["vegetation_distance_px"] = v_info.get("vegetation_distance_px")
+            params["vegetation_distance_m"] = v_info.get("vegetation_distance_m")
+            params["anchor_attachments"] = t_info.get("anchor_attachments", [])
+            params["dead_wire_candidate"] = bool(t_info.get("dead_wire_candidate", False))
+            if idx_w == 0:
+                params["structural_detections"] = structural_summary
+                params["topology_summary"] = topo_summary
+                params["calibration_meta"] = {
+                    "source": multicue_cal["source"],
+                    "meters_per_px": eff_meters_per_px,
+                    "virtual_ground_y": eff_virtual_ground_y,
+                    "cropped_pole_base": multicue_cal["cropped_pole_base"],
+                    "reasons": multicue_cal["reasons"],
+                }
 
             ew = evaluate_wire(
                 class_name=cls_key,
@@ -394,10 +476,11 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 crs_weighted=crs_weighted,
                 lowest_y=w["lowest_y"],
                 pole_bbox=pole_bbox,
-                meters_per_px=scale_res.meters_per_px,
+                meters_per_px=eff_meters_per_px,
                 image_height=prep.original_shape[0],
                 pec_min_map=pec_min_map,
                 params_dict=params,
+                virtual_ground_y=eff_virtual_ground_y,
             )
             ew["centerline_json"] = w["centerline_json"]
             final_wires.append(ew)
@@ -431,7 +514,7 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 f.write(vni_res.spectrum_png)
             spectrum_path = str(spec_file)
 
-        # Save unified all-in-one annotated overlay image (wires + poles + vegetation + sag/clearance)
+        # Save unified all-in-one annotated overlay image (wires + poles + crossarms + insulators + vegetation + sag/clearance)
         from backend.utils.cv.visualize import render_unified_overlay
         annotated_img = render_unified_overlay(
             prep.rgb,
@@ -440,20 +523,43 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             pole_bbox=pole_bbox,
             pole_confidence=best_pole_conf if best_pole_conf > 0 else None,
             pole_masks=pole_masks,
-            meters_per_px=scale_res.meters_per_px,
+            crossarm_boxes=crossarm_boxes_all,
+            insulator_boxes=insulator_boxes_all,
+            building_boxes=building_boxes_all,
+            virtual_ground_y=eff_virtual_ground_y,
+            meters_per_px=eff_meters_per_px,
         )
         annotated_file = base_outputs / f"analysis_{analysis_id}_annotated.jpg"
         cv2.imwrite(str(annotated_file), cv2.cvtColor(annotated_img, cv2.COLOR_RGB2BGR))
         annotated_path = str(annotated_file)
 
+        # Roll up clearance and sag metrics first so fused risk uses clearance + sag + vegetation + dead-wire + density
+        margin_pct = get_setting("margin_of_error_pct", 20) / 100.0
+        clearance_rollup = rollup_analysis_clearance(final_wires, pec_min_map, margin_pct)
+
         # Calculate final scores
         detection_risk = compute_detection_risk(severities)
         barangay_risk = compute_barangay_risk(vni_res.vni, max_crs, dead_wires, len(analyzed_wires))
-        final_score = compute_risk_score(detection_risk, barangay_risk)
-        
-        # Roll up clearance and sag metrics
-        margin_pct = get_setting("margin_of_error_pct", 20) / 100.0
-        clearance_rollup = rollup_analysis_clearance(final_wires, pec_min_map, margin_pct)
+        legacy_score = compute_risk_score(detection_risk, barangay_risk)
+
+        valid_veg_px = [d["vegetation_distance_px"] for d in veg_dists if d.get("vegetation_distance_px") is not None]
+        valid_veg_m = [d["vegetation_distance_m"] for d in veg_dists if d.get("vegetation_distance_m") is not None]
+        img_mp = (prep.original_shape[0] * prep.original_shape[1]) / 1e6
+        unified_hz = compute_unified_hazard_breakdown(
+            clearance_m=clearance_rollup["clearance_available"],
+            pec_road_min_m=5.5,
+            pec_pedestrian_min_m=4.6,
+            max_wire_crs=max_crs,
+            max_crs_10=max_crs_10,
+            vni=vni_res.vni,
+            min_veg_dist_m=min(valid_veg_m) if valid_veg_m else None,
+            min_veg_dist_px=min(valid_veg_px) if valid_veg_px else None,
+            dead_wire_count=dead_wires,
+            free_hanging_count=int(topo_summary.get("free_hanging_candidates", 0)),
+            wire_count=len(analyzed_wires),
+            image_area_mp=img_mp,
+        )
+        final_score = legacy_score if is_mock_mode() else unified_hz["fused_risk_score"]
 
         if clearance_rollup["clearance_available"] is not None:
             pole_heights_cfg = get_setting("pole_heights", [10.0]) or [10.0]

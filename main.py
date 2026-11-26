@@ -340,20 +340,44 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
         data["ground_clearance_m"] = data.get("clearance_available")
         
         wires_rows = conn.execute("SELECT * FROM wires WHERE analysis_id = ?", (analysis_id,)).fetchall()
-        from backend.formulas import compute_allowable_sag, compute_mspi, compute_paper_crs
-        from backend.utils.clearance_helpers import parse_params_json
+        import json
+        from backend.formulas import (
+            compute_allowable_sag,
+            compute_mspi,
+            compute_paper_crs,
+            compute_unified_hazard_breakdown,
+        )
+        from backend.utils.clearance_helpers import determine_overall_safety, parse_params_json
         from backend.utils.cv.vni import get_vni_band
 
         wires_data = []
         wire_crs_10_list: list[float] = []
         analysis_flags: list[str] = []
         veg_count_from_params = 0
+        structural_detections: dict[str, Any] = {
+            "pole": [json.loads(data["pole_bbox_json"])] if data.get("pole_bbox_json") else [],
+            "crossarm": [],
+            "insulator": [],
+            "building": [],
+            "vegetation": [],
+        }
+        topology_summary: dict[str, Any] = {
+            "total_wires": len(wires_rows),
+            "anchored_wires": 0,
+            "free_hanging_candidates": 0,
+            "anchors_detected": {"pole": len(structural_detections["pole"]), "crossarm": 0, "insulator": 0},
+        }
+        calibration_meta: dict[str, Any] = {"source": "pole" if data.get("pole_bbox_json") else "unavailable"}
+
         class_counts = {
             "power_distribution_line": 0,
             "communication_cable": 0,
             "dead_wire": 0,
             "vegetation": 0,
-            "pole": 1 if data.get("pole_bbox_json") else 0,
+            "pole": len(structural_detections["pole"]),
+            "crossarm": 0,
+            "insulator": 0,
+            "building": 0,
         }
         from backend.utils.cv.types import normalize_wire_class
 
@@ -362,6 +386,15 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
             p_dict = parse_params_json(wd.get("params_json"))
             if isinstance(p_dict.get("vegetation_count"), int):
                 veg_count_from_params = max(veg_count_from_params, p_dict["vegetation_count"])
+            if isinstance(p_dict.get("structural_detections"), dict):
+                for sk in ("pole", "crossarm", "insulator", "building", "vegetation"):
+                    if isinstance(p_dict["structural_detections"].get(sk), list):
+                        structural_detections[sk] = p_dict["structural_detections"][sk]
+            if isinstance(p_dict.get("topology_summary"), dict):
+                topology_summary = p_dict["topology_summary"]
+            if isinstance(p_dict.get("calibration_meta"), dict):
+                calibration_meta = p_dict["calibration_meta"]
+
             canon_cls = normalize_wire_class(wd.get("class_name") or "")
             if canon_cls in class_counts:
                 class_counts[canon_cls] += 1
@@ -387,6 +420,12 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
             wd["crs_10"] = crs_10
             wd["paper_risk_level"] = paper_level
             wd["flags"] = w_flags
+            wd["vegetation_distance_px"] = p_dict.get("vegetation_distance_px")
+            wd["vegetation_distance_m"] = p_dict.get("vegetation_distance_m")
+            wd["anchor_attachments"] = p_dict.get("anchor_attachments", [])
+            wd["dead_wire_candidate"] = bool(
+                p_dict.get("dead_wire_candidate", canon_cls == "dead_wire")
+            )
             if crs_10 is not None:
                 wire_crs_10_list.append(float(crs_10))
             for fl in w_flags:
@@ -394,7 +433,15 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
                     analysis_flags.append(fl)
             wires_data.append(wd)
 
+        for sk in ("pole", "crossarm", "insulator", "building", "vegetation"):
+            class_counts[sk] = max(class_counts.get(sk, 0), len(structural_detections.get(sk) or []))
+        if veg_count_from_params > class_counts["vegetation"]:
+            class_counts["vegetation"] = veg_count_from_params
+
         data["wires"] = wires_data
+        data["structural_detections"] = structural_detections
+        data["topology"] = topology_summary
+        data["calibration"] = calibration_meta
         vni_val = data.get("vni")
         data["vni_band"] = get_vni_band(float(vni_val)) if vni_val is not None else "unavailable"
         mspi_res = compute_mspi(float(vni_val or 0.0), wire_crs_10_list)
@@ -406,10 +453,8 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
             if fl not in analysis_flags:
                 analysis_flags.append(fl)
         data["flags"] = analysis_flags
-        if veg_count_from_params > class_counts["vegetation"]:
-            class_counts["vegetation"] = veg_count_from_params
         data["class_counts"] = class_counts
-        
+
         # ground_clearance_status mapping
         # clearance_ok encoding without a migration: 1 = ok, 0 = below, 2 = marginal, NULL = no clearance.
         status = data.get("status")
@@ -427,7 +472,36 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
             data["ground_clearance_status"] = "below"
         else:
             data["ground_clearance_status"] = "unavailable"
-            
+
+        # Compute unified 5-factor hazard breakdown & PEC 5.5m road / 4.6m pedestrian check
+        valid_veg_px = [w["vegetation_distance_px"] for w in wires_data if w.get("vegetation_distance_px") is not None]
+        valid_veg_m = [w["vegetation_distance_m"] for w in wires_data if w.get("vegetation_distance_m") is not None]
+        w_px = float(data.get("width") or 1000)
+        h_px = float(data.get("height") or 1000)
+        hz_info = compute_unified_hazard_breakdown(
+            clearance_m=data.get("clearance_available"),
+            pec_road_min_m=5.5,
+            pec_pedestrian_min_m=4.6,
+            max_wire_crs=float(data.get("max_crs") or 0.0),
+            max_crs_10=float(data.get("max_crs_10") or 0.0),
+            vni=float(vni_val or 0.0),
+            min_veg_dist_m=min(valid_veg_m) if valid_veg_m else None,
+            min_veg_dist_px=min(valid_veg_px) if valid_veg_px else None,
+            dead_wire_count=int(data.get("dead_wire_count") or 0),
+            free_hanging_count=int(topology_summary.get("free_hanging_candidates") or 0),
+            wire_count=len(wires_data),
+            image_area_mp=(w_px * h_px) / 1e6,
+        )
+        data["hazard_breakdown"] = hz_info["hazard_breakdown"]
+        data["pec_clearance_check"] = hz_info["pec_clearance_check"]
+        wire_safeties = [str(w.get("safety_level")) for w in wires_data if w.get("safety_level")]
+        data["safety_verdict"] = determine_overall_safety(
+            wire_safeties,
+            max_wire_band=data.get("max_wire_band"),
+            analysis_band=data.get("crs_band"),
+            clearance_status=data.get("ground_clearance_status"),
+        )
+
         return data
     finally:
         conn.close()

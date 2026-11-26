@@ -31,6 +31,9 @@ CLASS_COLORS_RGB: dict[str, tuple[int, int, int]] = {
     "dead_wire": (245, 158, 11),
     "vegetation": (16, 185, 129),
     "pole": (56, 189, 248),
+    "crossarm": (20, 184, 166),
+    "insulator": (244, 114, 182),
+    "building": (148, 163, 184),
     "other": (168, 85, 247),
 }
 
@@ -40,6 +43,9 @@ CLASS_SHORT_LABELS: dict[str, str] = {
     "dead_wire": "Dead Wire",
     "vegetation": "Vegetation",
     "pole": "Pole",
+    "crossarm": "Crossarm",
+    "insulator": "Insulator",
+    "building": "Building",
     "other": "Other Wire",
 }
 
@@ -125,6 +131,10 @@ def render_unified_overlay(
     pole_bbox: list[float] | None = None,
     pole_confidence: float | None = None,
     pole_masks: list[np.ndarray] | None = None,
+    crossarm_boxes: list[list[float]] | None = None,
+    insulator_boxes: list[list[float]] | None = None,
+    building_boxes: list[list[float]] | None = None,
+    virtual_ground_y: float | None = None,
     meters_per_px: float | None = None,
 ) -> np.ndarray:
     """Render all detections (masks, contours, centerlines, pole boxes, span chords, sag & clearance indicators)
@@ -209,6 +219,26 @@ def render_unified_overlay(
             gx1 = max(4, px1 - 45)
             gx2 = min(w - 4, px2 + 45)
             _draw_dashed_line(canvas, (gx1, ground_y), (gx2, ground_y), p_color, thickness=2, dash_len=8)
+        elif virtual_ground_y is not None:
+            pole_center_x = (px1 + px2) // 2
+
+    # 3b. Crossarms, Insulators & Building Context Outlines
+    for cb in crossarm_boxes or []:
+        if len(cb) >= 4:
+            cx1, cy1, cx2, cy2 = [int(round(v)) for v in cb[:4]]
+            cv2.rectangle(canvas, (cx1, cy1), (cx2, cy2), CLASS_COLORS_RGB["crossarm"], 2)
+            _draw_badge(canvas, "Crossarm", cx1, max(24, cy1), CLASS_COLORS_RGB["crossarm"], font_scale=0.44)
+
+    for ib in insulator_boxes or []:
+        if len(ib) >= 4:
+            ix1, iy1, ix2, iy2 = [int(round(v)) for v in ib[:4]]
+            icx, icy = (ix1 + ix2) // 2, (iy1 + iy2) // 2
+            cv2.circle(canvas, (icx, icy), max(4, (ix2 - ix1) // 2), CLASS_COLORS_RGB["insulator"], 2, cv2.LINE_AA)
+
+    for bb in (building_boxes or [])[:2]:
+        if len(bb) >= 4:
+            bx1, by1, bx2, by2 = [int(round(v)) for v in bb[:4]]
+            _draw_dashed_line(canvas, (bx1, by1), (bx2, by1), CLASS_COLORS_RGB["building"], thickness=1, dash_len=8)
 
     # 4. Wires: continuous smooth mask contours, endpoint chords, centerline / catenary curves, sag vectors & badges
     lowest_wire_pt: tuple[int, int] | None = None
@@ -283,7 +313,18 @@ def render_unified_overlay(
         badge_text = f"#{idx} {short_lbl} {int(round(w_conf * 100))}%{sag_suffix}"
         _draw_badge(canvas, badge_text, label_x, max(24, label_y - 4), w_color)
 
-    # 5. Ground clearance indicator line from lowest wire sag point to pole ground datum
+        # Vegetation encroachment indicator line when vegetation is within 80 px of this wire
+        veg_dist_px = wire.get("vegetation_distance_px")
+        w_pt = wire.get("veg_wire_point")
+        v_pt = wire.get("veg_point")
+        if veg_dist_px is not None and float(veg_dist_px) <= 80.0 and w_pt and v_pt:
+            wp_t = (int(round(w_pt[0])), int(round(w_pt[1])))
+            vp_t = (int(round(v_pt[0])), int(round(v_pt[1])))
+            _draw_dashed_line(canvas, wp_t, vp_t, (16, 185, 129), thickness=2, dash_len=5)
+            cv2.circle(canvas, wp_t, 3, (16, 185, 129), -1, cv2.LINE_AA)
+            cv2.circle(canvas, vp_t, 3, (16, 185, 129), -1, cv2.LINE_AA)
+
+    # 5. Ground clearance indicator line from lowest wire sag point to pole / virtual ground datum
     if ground_y is not None and lowest_wire_pt is not None and ground_y > lowest_wire_pt[1]:
         cx = lowest_wire_pt[0]
         _draw_dashed_line(canvas, (cx, lowest_wire_pt[1]), (cx, ground_y), (56, 189, 248), thickness=2, dash_len=6)
@@ -295,6 +336,14 @@ def render_unified_overlay(
         else:
             clr_text = f"Clearance {clr_px}px"
         mid_y = (lowest_wire_pt[1] + ground_y) // 2
-        _draw_badge(canvas, clr_text, min(w - 140, cx + 8), mid_y, (56, 189, 248))
+        _draw_badge(canvas, clr_text, min(w - 160, cx + 8), mid_y, (56, 189, 248))
+    elif virtual_ground_y is not None and lowest_wire_pt is not None and virtual_ground_y > lowest_wire_pt[1] and meters_per_px:
+        cx = lowest_wire_pt[0]
+        bottom_y = h - 4
+        _draw_dashed_line(canvas, (cx, lowest_wire_pt[1]), (cx, bottom_y), (56, 189, 248), thickness=2, dash_len=6)
+        est_clr_m = (float(virtual_ground_y) - lowest_wire_pt[1]) * float(meters_per_px)
+        clr_text = f"Est. Clearance ~{est_clr_m:.2f}m (Prior)"
+        mid_y = (lowest_wire_pt[1] + bottom_y) // 2
+        _draw_badge(canvas, clr_text, max(6, min(w - 220, cx - 60)), mid_y, (56, 189, 248))
 
     return canvas

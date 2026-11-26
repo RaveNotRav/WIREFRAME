@@ -722,6 +722,10 @@
         <div class="bento-tile bento-xl neu-raised telemetry-tile" id="tile-image" style="display: none;">
             <div class="bento-tile-header">
                 <h3 class="bento-tile-title">Image Analysis (Unified Overlay)</h3>
+                <div role="group" aria-label="Image view mode" style="display: inline-flex; gap: 6px; margin-left: auto;">
+                    <button type="button" class="neu-button neu-pressed" id="btn-view-overlay" data-view-mode="overlay" style="padding: 5px 12px; font-size: 0.8rem;">Unified Overlay</button>
+                    <button type="button" class="neu-button neu-flat" id="btn-view-original" data-view-mode="original" style="padding: 5px 12px; font-size: 0.8rem;">Original Photo</button>
+                </div>
             </div>
             <div class="bento-tile-body">
                 <div id="analysis-metadata" style="display: none; box-sizing: border-box; max-width: 100%; padding: 10px; border-radius: var(--radius-control); margin-bottom: 10px; font-size: 0.9rem; text-align: left; width: 100%; overflow-wrap: anywhere;">
@@ -731,13 +735,17 @@
                         <strong>Notes:</strong> <span id="meta-notes" style="font-style: italic;"></span>
                     </div>
                 </div>
-                <img id="img-annotated" decoding="async" style="width: 100%; max-height: 400px; object-fit: contain; border-radius: var(--radius-control); background: #000;" alt="Annotated Image" crossorigin="use-credentials">
+                <div id="overlay-viewer-stage" style="position: relative; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; border-radius: var(--radius-control); overflow: hidden;">
+                    <img id="img-annotated" decoding="async" style="width: 100%; max-height: 400px; object-fit: contain; border-radius: var(--radius-control); background: #000; display: block;" alt="Annotated Image" crossorigin="use-credentials">
+                    <canvas id="overlay-highlight-canvas" aria-hidden="true" style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
+                </div>
                 <div id="overlay-class-legend" aria-label="Detected classes legend" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; padding: 8px 12px; border-radius: var(--radius-control); background: var(--surface-instrument-card); border: 1px solid var(--surface-instrument-border-subtle); font-family: var(--font-family-mono); font-size: 0.78rem;">
                     <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--wire-power_distribution_line, #ef4444);"></span>Power Lines: <strong id="legend-count-power">0</strong></span>
                     <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--wire-communication_cable, #3b82f6);"></span>Communication: <strong id="legend-count-comm">0</strong></span>
                     <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--wire-dead_wire, #f59e0b);"></span>Dead Wire: <strong id="legend-count-dead">0</strong></span>
                     <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--wire-vegetation, #10b981);"></span>Vegetation: <strong id="legend-count-veg">0</strong></span>
                     <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: var(--telemetry-cyan, #38bdf8);"></span>Poles: <strong id="legend-count-pole">0</strong></span>
+                    <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; border-radius: 50%; background: #14b8a6;"></span>Crossarm/Ins.: <strong id="legend-count-struct">0</strong></span>
                 </div>
                 <div class="bento-tile-footer">
                     <button class="neu-button neu-raised-sm" id="btn-calibrate" style="display: none;">Manual Calibration Tool</button>
