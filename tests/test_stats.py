@@ -146,11 +146,70 @@ def test_unauthenticated_post_api_analyze_increments_dashboard_and_history(
     assert matched_recent["is_public"] == 1
     assert matched_recent["submission_type"] == "Public Submission"
 
-    # Immediately verify /api/history returns the Public Submission by default
+    # Immediately verify /api/history and /api/analysis return the Public Submission by default
     hist_res = client_admin.get("/api/history")
     assert hist_res.status_code == 200
     hist_items = hist_res.json()["data"]
     assert any(it["id"] == aid and it["is_public"] == 1 and it["submission_type"] == "Public Submission" for it in hist_items)
+
+    list_res = client_admin.get("/api/analysis")
+    assert list_res.status_code == 200
+    list_items = list_res.json()["data"]
+    assert any(it["id"] == aid and it["is_public"] == 1 for it in list_items)
+
+
+def test_unauthenticated_upload_populates_stats_recent_analyses_and_get_analysis(
+    client_unauth: TestClient,
+    client_admin: TestClient,
+    clean_image,
+    monkeypatch,
+):
+    """Regression: unauthenticated POST /api/analysis/upload populates GET /api/stats/dashboard recent_analyses (>= 1) and GET /api/analysis."""
+    import os
+    import cv2
+    import backend.routes.analysis as analysis_route
+    from backend.database import get_connection
+    from backend.utils.analysis_engine import process_analysis
+    from backend import main_state
+
+    monkeypatch.setattr(analysis_route, "enqueue_batch", lambda _bid: None)
+
+    sharp_img = clean_image.copy()
+    cv2.rectangle(sharp_img, (280, 50), (320, 470), (35, 35, 35), -1)
+    for y_off in range(70, 250, 25):
+        cv2.line(sharp_img, (15, y_off), (625, y_off + 28), (10, 10, 10), 2)
+    image_bytes = cv2.imencode(".jpg", sharp_img)[1].tobytes()
+
+    up_res = client_unauth.post(
+        "/api/analysis/upload",
+        data={"company": "Meralco", "barangay": "San Antonio", "street": "Pearl Drive"},
+        files={"file": ("public_upload_check.jpg", image_bytes, "image/jpeg")},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert up_res.status_code == 200, up_res.text
+    aid = up_res.json()["analysis_id"]
+    bid = up_res.json()["batch_id"]
+
+    conn = get_connection()
+    row = conn.execute("SELECT filename FROM analyses WHERE id = ?", (aid,)).fetchone()
+    process_analysis(aid, os.path.join("uploads", row["filename"]), conn, main_state.get_model(), bid)
+    # Mark as real non-mock public submission (is_mock=0, is_public=1) to verify default include_mock=false path
+    conn.execute("UPDATE analyses SET is_mock = 0 WHERE id = ?", (aid,))
+    conn.commit()
+    conn.close()
+
+    stats_res = client_admin.get("/api/stats/dashboard")
+    assert stats_res.status_code == 200
+    stats_body = stats_res.json()
+    assert stats_body["kpis"]["total_analyses"] >= 1
+    assert len(stats_body["recent_analyses"]) >= 1
+    assert stats_body["recent_analyses"][0]["id"] == aid
+    assert stats_body["recent_analyses"][0]["is_public"] == 1
+
+    analysis_res = client_admin.get("/api/analysis")
+    assert analysis_res.status_code == 200
+    analysis_items = analysis_res.json()["data"]
+    assert any(it["id"] == aid and it["is_public"] == 1 for it in analysis_items)
 
 
 def test_dashboard_stats_mock_public_regression(client_admin: TestClient, _init_settings):

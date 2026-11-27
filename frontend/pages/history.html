@@ -157,18 +157,19 @@
 
     </main>
 
+    <script type="module" src="/assets/js/history.js?v=20261127"></script>
     <script type="module">
-        import { fetchApi, showToast } from '/assets/js/main.js';
-        import { initTheme, toggleTheme } from '/assets/js/lib/theme.js';
+        import { fetchApi, showToast } from '/assets/js/main.js?v=20261127';
+        import { initTheme, toggleTheme } from '/assets/js/lib/theme.js?v=20261127';
         import {
             loadHistoryData,
             NO_VERIFIED_RECORDS_MSG,
             resolveExportSelection,
             formatSkippedNoGpsMessage,
             requestHistoryExport
-        } from '/assets/js/loaders.js';
-        import { formatDbTimestamp, escapeHtml } from '/assets/js/lib/formatters.js';
-        import { resolveHistoryPublicFilter, buildHistoryBadgesHtml } from '/assets/js/history.js';
+        } from '/assets/js/loaders.js?v=20261127';
+        import { formatDbTimestamp, escapeHtml } from '/assets/js/lib/formatters.js?v=20261127';
+        import { resolveHistoryPublicFilter, buildHistoryBadgesHtml } from '/assets/js/history.js?v=20261127';
 
         const urlParams = new URLSearchParams(window.location.search);
         const paramAnalysisId = urlParams.get('analysis_id') || urlParams.get('id');

@@ -39,4 +39,11 @@ describe('Public Submissions & Detected Wires Layout Tests', () => {
         assert.match(analyzeCss, /flex-shrink\s*:\s*0/);
         assert.match(analyzeJs, /div\.style\.flexShrink\s*=\s*['"]0['"]/);
     });
+
+    it('dashboard.html, history.html, and analyze.html include ?v=20261127 cache-busting on script tags', () => {
+        const dashboardHtml = fs.readFileSync(path.resolve(process.cwd(), 'frontend/pages/dashboard.html'), 'utf8');
+        assert.match(dashboardHtml, /<script[^>]+src="\/assets\/js\/dashboard\.js\?v=20261127"/);
+        assert.match(historyHtml, /<script[^>]+src="\/assets\/js\/history\.js\?v=20261127"/);
+        assert.match(analyzeHtml, /<script[^>]+src="\/assets\/js\/analyze\.js\?v=20261127"/);
+    });
 });

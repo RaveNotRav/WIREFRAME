@@ -179,6 +179,8 @@ async def security_headers_middleware(request: Request, call_next):
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     if request.url.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
+    elif request.url.path == "/" or request.url.path.endswith((".html", ".js", ".css")):
+        response.headers.setdefault("Cache-Control", "no-cache, must-revalidate")
     return response
 
 from fastapi.exceptions import RequestValidationError

@@ -282,9 +282,12 @@ async def get_analyses(
                 conds.append("status = ?")
                 params.append(status)
             
+        from backend.mock_detector import is_mock_mode
         if is_mock is not None:
             conds.append("is_mock = ?")
             params.append(is_mock)
+        elif not is_mock_mode():
+            conds.append("is_mock = 0")
             
         def add_like_filter(col_name: str, val: str):
             if val:
@@ -304,7 +307,8 @@ async def get_analyses(
         if sort_dir.lower() not in ["asc", "desc"]:
             sort_dir = "desc"
             
-        query += f" ORDER BY {sort_by} {sort_dir}"
+        tie_breaker = f", id {sort_dir}" if sort_by != "id" else ""
+        query += f" ORDER BY {sort_by} {sort_dir}{tie_breaker}"
         
         # count total
         count_query = "SELECT count(*) as c FROM analyses"

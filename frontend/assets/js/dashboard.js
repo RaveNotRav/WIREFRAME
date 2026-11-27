@@ -147,7 +147,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             renderHeatmap(data.heatmap);
             renderDistribution(data.distribution);
             renderTrendSVG(data.trend);
-            if (data.kpis && data.kpis.total_analyses === 0) {
+            if (Array.isArray(data.recent_analyses)) {
+                renderRecentAnalyses(data.recent_analyses);
+            } else if (data.kpis && data.kpis.total_analyses === 0) {
                 renderRecentAnalyses([]);
             }
         } catch (e) {

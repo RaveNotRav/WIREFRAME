@@ -9,7 +9,7 @@ export async function loadHistoryData(filters = {}) {
     const { page = 1, limit = 12, is_mock = true, is_public, company, barangay, street, include_invalid } = filters;
     let url = `/api/analysis?page=${page}&limit=${limit}`;
     if (!is_mock) url += `&is_mock=0`;
-    if (is_public !== undefined) url += `&is_public=${is_public}`;
+    if (is_public === 0 || is_public === 1) url += `&is_public=${is_public}`;
     
     if (company) url += `&company=${encodeURIComponent(company)}`;
     if (barangay) url += `&barangay=${encodeURIComponent(barangay)}`;
