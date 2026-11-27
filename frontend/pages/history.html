@@ -115,8 +115,9 @@
             <div class="bento-tile-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 10px;">
                 <h2 class="bento-tile-title" style="width: 100%;">Analysis History</h2>
                 <div style="display: flex; gap: 10px; margin-bottom: 10px; width: 100%;">
-                    <button class="neu-button neu-pressed" id="tab-verified">Verified Inspector Records</button>
-                    <button class="neu-button neu-flat" id="tab-public">Public Tips (Unverified)</button>
+                    <button class="neu-button neu-pressed" id="tab-all">All Submissions</button>
+                    <button class="neu-button neu-flat" id="tab-verified">Verified Inspector Records</button>
+                    <button class="neu-button neu-flat" id="tab-public">Public Submissions</button>
                 </div>
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; width: 100%;">
                     <input type="text" id="filter-company" class="neu-input" placeholder="Company" style="max-width: 150px;">
@@ -167,6 +168,7 @@
             requestHistoryExport
         } from '/assets/js/loaders.js';
         import { formatDbTimestamp, escapeHtml } from '/assets/js/lib/formatters.js';
+        import { resolveHistoryPublicFilter, buildHistoryBadgesHtml } from '/assets/js/history.js';
 
         const urlParams = new URLSearchParams(window.location.search);
         const paramAnalysisId = urlParams.get('analysis_id') || urlParams.get('id');
@@ -220,15 +222,26 @@
 
         document.getElementById('btn-refresh').addEventListener('click', () => loadHistory(currentPage));
             
-            document.getElementById('tab-verified').addEventListener('click', (e) => {
-                e.target.classList.replace('neu-flat', 'neu-pressed');
-                document.getElementById('tab-public').classList.replace('neu-pressed', 'neu-flat');
+            function setHistoryTab(activeId) {
+                for (const tid of ['tab-all', 'tab-verified', 'tab-public']) {
+                    const el = document.getElementById(tid);
+                    if (!el) continue;
+                    el.classList.toggle('neu-pressed', tid === activeId);
+                    el.classList.toggle('neu-flat', tid !== activeId);
+                }
+            }
+            document.getElementById('tab-all')?.addEventListener('click', () => {
+                setHistoryTab('tab-all');
                 currentPage = 1;
                 loadHistory(currentPage);
             });
-            document.getElementById('tab-public').addEventListener('click', (e) => {
-                e.target.classList.replace('neu-flat', 'neu-pressed');
-                document.getElementById('tab-verified').classList.replace('neu-pressed', 'neu-flat');
+            document.getElementById('tab-verified').addEventListener('click', () => {
+                setHistoryTab('tab-verified');
+                currentPage = 1;
+                loadHistory(currentPage);
+            });
+            document.getElementById('tab-public').addEventListener('click', () => {
+                setHistoryTab('tab-public');
                 currentPage = 1;
                 loadHistory(currentPage);
             });
@@ -433,7 +446,10 @@
             updateSummaryButtonState();
 
             try {
-                const isPublicTab = document.getElementById('tab-public').classList.contains('neu-pressed') ? 1 : 0;
+                const activeTabKey = document.getElementById('tab-public')?.classList.contains('neu-pressed')
+                    ? 'public'
+                    : (document.getElementById('tab-verified')?.classList.contains('neu-pressed') ? 'verified' : 'all');
+                const isPublicTab = resolveHistoryPublicFilter(activeTabKey);
                 const isInvalidChecked = document.getElementById('toggle-invalid')?.checked;
                 const canIncludeInvalid = user && (user.role === 'admin' || user.role === 'lgu_engineer') && isInvalidChecked;
 
@@ -488,11 +504,7 @@
                 
                 let thumbSrc = item.filename ? `/api/analysis/${item.id}/original` : ''; // Fallback
                 
-                let mockBadge = item.is_mock ? `<div class="mock-watermark">MOCK DATA</div>` : '';
-                if (item.is_public) {
-                    const tipTop = item.is_mock ? '50px' : '20px';
-                    mockBadge += `<div class="mock-watermark" style="background: var(--color-warning); top: ${tipTop}; opacity: 1;">UNVERIFIED PUBLIC TIP</div>`;
-                }
+                let mockBadge = buildHistoryBadgesHtml(item);
                 
                 const isComplete = item.status === 'complete' || item.status === 'no_wires';
                 const canSelect = isComplete || (canIncludeInvalid && item.status === 'rejected');

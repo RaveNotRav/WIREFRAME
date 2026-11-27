@@ -261,29 +261,29 @@ describe('Admin Dashboard Polish Tests', () => {
     });
 
     describe('Risk Band Consistency & Query Parity', () => {
-        it('Recent Analyses and dashboard stats honor includeMock toggle (unchecked: is_public=0 & is_mock=0; checked: all complete)', () => {
-            // Verify loadAllAnalyses branches on state.includeMock: unchecked restricts is_public=0&is_mock=0, checked omits both
+        it('Recent Analyses and dashboard stats include Public Submissions by default and honor includeMock toggle', () => {
+            // Verify loadAllAnalyses branches on state.includeMock: unchecked restricts &is_mock=0 (keeping public submissions visible), checked omits it
             assert.match(
                 dashboardJs,
-                /const\s+mockQuery\s*=\s*state\.includeMock\s*\?\s*['"]{2}\s*:\s*['"]&is_public=0&is_mock=0['"]/,
-                'loadAllAnalyses must set mockQuery to empty when checked and &is_public=0&is_mock=0 when unchecked'
+                /const\s+mockQuery\s*=\s*state\.includeMock\s*\?\s*['"]{2}\s*:\s*['"]&is_mock=0['"]/,
+                'loadAllAnalyses must set mockQuery to empty when checked and &is_mock=0 when unchecked so Public Submissions remain visible'
             );
             assert.match(
                 dashboardJs,
                 /\/api\/analysis\?limit=100&status=complete\$\{mockQuery\}\$\{cacheBuster\}/,
-                'loadAllAnalyses base URL must not hardcode is_public=0 when includeMock is checked'
+                'loadAllAnalyses base URL must not hardcode is_public=0'
             );
-            // Verify realCheckRes queries is_public=0 and status=complete
+            // Verify realCheckRes queries is_mock=0 and status=complete (including Public Submissions)
             assert.match(
                 dashboardJs,
-                /\/api\/analysis\?is_mock=0&is_public=0&status=complete/,
-                'realCheckRes must check verified complete records only'
+                /\/api\/analysis\?is_mock=0&status=complete/,
+                'realCheckRes must check all non-mock complete records'
             );
-            // Verify Public tip badge on is_public=1 rows
+            // Verify Public Submission badge on is_public=1 rows
             assert.match(
                 dashboardJs,
-                /Number\(item\.is_public\)\s*===\s*1[\s\S]*?recent-public-badge[\s\S]*?escapeHtml\(['"]Public tip['"]\)/,
-                'renderRecentAnalyses must render escaped Public tip badge when is_public=1'
+                /Number\(item\.is_public\)\s*===\s*1[\s\S]*?recent-public-badge[\s\S]*?escapeHtml\(['"]Public Submission['"]\)/,
+                'renderRecentAnalyses must render escaped Public Submission badge when is_public=1'
             );
             assert.match(
                 dashboardHtml,

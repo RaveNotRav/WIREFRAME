@@ -453,7 +453,7 @@ def run_hybrid_ensemble_segmentation(
                 orig_probs[wn_ch] = (1.0 - yolo_blend_weight) * orig_probs[wn_ch] + yolo_blend_weight * yolo_prob_map[wn_ch]
             orig_probs[0] = np.clip(1.0 - orig_probs[1:].sum(0), 0.0, 1.0)
 
-    tau = 0.24
+    tau = 0.22
     wire_lb = probs[WIRENET_WIRE_IDS].sum(0) >= tau
     union_crop = wire_lb[lb.pad_y : lb.pad_y + lb.new_h, lb.pad_x : lb.pad_x + lb.new_w].astype(np.float32)
     down = lb.orig_w < lb.new_w
@@ -463,18 +463,18 @@ def run_hybrid_ensemble_segmentation(
             (lb.orig_w, lb.orig_h),
             interpolation=cv2.INTER_AREA if down else cv2.INTER_LINEAR,
         )
-        >= (0.20 if down else 0.35)
+        >= (0.18 if down else 0.32)
     ) | (orig_probs[WIRENET_WIRE_IDS].sum(0) >= tau)
 
     span_cfg = {
-        "min_px": 30,
-        "min_len": 15,
+        "min_px": 20,
+        "min_len": 12,
         "max_turn_deg": 35.0,
         "cluster_radius": 5,
         "max_gap": 120.0,
         "gap_angle_deg": 35.0,
         "draw_bridge": True,
-        "min_span_len": 90,
+        "min_span_len": 55,
         "own_component": True,
         "max_lateral_px": 20.0,
     }

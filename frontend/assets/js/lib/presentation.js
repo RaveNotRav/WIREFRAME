@@ -173,7 +173,13 @@ export function safetyPresentation(arg1, arg2, arg3) {
         if (hasNumericRiskScore) {
             reasons.push(`Risk score ${analysis.risk_score.toFixed(1)} (Moderate)`);
         }
-        reasons.push('Moderate vegetation risk detected');
+        const vegCount = Number(analysis?.class_counts?.vegetation ?? -1);
+        const vniVal = typeof analysis?.vni === 'number' ? analysis.vni : null;
+        if (vegCount === 0 || (vniVal !== null && vniVal <= 0.25)) {
+            reasons.push('Moderate structural sag or bundle density detected');
+        } else {
+            reasons.push('Moderate vegetation risk detected');
+        }
         crsText = 'Moderate Risk';
         crsColor = 'var(--risk-medium)';
     } else if (crsBand === 'Low') {

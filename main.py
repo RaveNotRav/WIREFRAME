@@ -485,6 +485,7 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
             max_wire_crs=float(data.get("max_crs") or 0.0),
             max_crs_10=float(data.get("max_crs_10") or 0.0),
             vni=float(vni_val or 0.0),
+            vegetation_count=int(class_counts.get("vegetation") or 0),
             min_veg_dist_m=min(valid_veg_m) if valid_veg_m else None,
             min_veg_dist_px=min(valid_veg_px) if valid_veg_px else None,
             dead_wire_count=int(data.get("dead_wire_count") or 0),
@@ -508,7 +509,236 @@ async def get_analysis_result(analysis_id: int, req: Request, user: User | None 
 
 
 from fastapi.responses import RedirectResponse
-from fastapi import Request
+from fastapi import File, Form, Query, Response, UploadFile
+from backend.auth import (
+    _hash_token,
+    check_anon_rate_limit,
+    check_rate_limit,
+    cookie_secure,
+    require_role,
+    verify_csrf,
+)
+
+
+@app.post("/api/analyze", response_class=JSONResponse)
+async def api_analyze_entry(
+    req: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    company: str | None = Form(None, max_length=200),
+    barangay: str | None = Form(None, max_length=200),
+    street: str | None = Form(None, max_length=200),
+    sector: str | None = Form(None, max_length=100),
+    notes: str | None = Form(None, max_length=2000),
+    gps_lat: str | None = Form(None, max_length=50),
+    gps_lng: str | None = Form(None, max_length=50),
+    gps_source: str | None = Form(None, max_length=20),
+    async_mode: bool = Form(False),
+    user: User | None = Depends(get_optional_user),
+) -> dict[str, Any]:
+    """Unified analyze endpoint for both Public User submissions and authenticated inspectors."""
+    import secrets
+    import shutil
+    from PIL import Image, ImageOps, UnidentifiedImageError
+    from PIL.Image import DecompressionBombError
+    from backend.database import DEFAULT_PUBLIC_GPS_LAT, DEFAULT_PUBLIC_GPS_LNG
+    from backend.routes.analysis import extract_gps
+    from backend.services.sites import get_or_create_site, validate_gps_coordinates, validate_location
+    from backend.services.worker import enqueue_batch
+    from backend.utils.analysis_engine import process_analysis
+    from backend.utils.uploads import generate_safe_filename
+
+    if req.cookies.get("session"):
+        verify_csrf(req)
+
+    guest_session_id = None
+    guest_token = None
+    if user is None:
+        if os.getenv("WIREFRAME_PUBLIC") == "1":
+            check_anon_rate_limit(req)
+        guest_token = req.cookies.get("guest_session") or secrets.token_urlsafe(32)
+        guest_session_id = _hash_token(guest_token)
+        company = company if (company and company.strip()) else "Public Submission"
+        barangay = barangay if (barangay and barangay.strip()) else "Unspecified"
+        street = street if (street and street.strip()) else "Unspecified"
+    else:
+        check_rate_limit(req, "upload", user.username, limit=30, window=60)
+
+    if main_state.is_config_failed():
+        raise HTTPException(status_code=503, detail="Server configuration is invalid. Cannot process uploads.")
+    if not is_mock_mode() and not main_state.is_model_available():
+        raise HTTPException(status_code=503, detail="Model not available. The detection model is not loaded on this server.")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in (".jpg", ".jpeg", ".png"):
+        raise HTTPException(status_code=400, detail="Invalid file type")
+
+    file.file.seek(0, 2)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large")
+
+    try:
+        img = Image.open(file.file)
+        img.verify()
+        file.file.seek(0)
+    except DecompressionBombError:
+        raise HTTPException(status_code=400, detail="Image exceeds decompression pixel limit")
+    except (IOError, SyntaxError, UnidentifiedImageError):
+        raise HTTPException(status_code=400, detail="Corrupt image")
+
+    comp, brgy, st = validate_location(company, barangay, street)
+    parsed_lat, parsed_lng, gps_warning = validate_gps_coordinates(gps_lat, gps_lng)
+
+    Path("uploads").mkdir(exist_ok=True)
+    try:
+        safe_name = generate_safe_filename(file.filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    out_path = os.path.join("uploads", safe_name)
+    with open(out_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    resolved_gps_source = None
+    requested_gps_source = gps_source.strip().lower() if isinstance(gps_source, str) else ""
+    width, height = None, None
+    try:
+        with Image.open(out_path) as img:
+            img.verify()
+        with Image.open(out_path) as img:
+            if parsed_lat is None or parsed_lng is None:
+                exif_lat, exif_lng = extract_gps(img)
+                if exif_lat is not None and exif_lng is not None:
+                    parsed_lat, parsed_lng, gps_warning = validate_gps_coordinates(exif_lat, exif_lng)
+                    resolved_gps_source = "exif"
+                elif user is None:
+                    parsed_lat = DEFAULT_PUBLIC_GPS_LAT
+                    parsed_lng = DEFAULT_PUBLIC_GPS_LNG
+            else:
+                resolved_gps_source = requested_gps_source if requested_gps_source in ("device", "manual") else "manual"
+            img_t = ImageOps.exif_transpose(img)
+            width, height = img_t.size
+    except HTTPException:
+        if os.path.exists(out_path):
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
+        raise
+    except Exception:
+        if os.path.exists(out_path):
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
+        raise HTTPException(status_code=400, detail="Corrupt image")
+
+    is_mock_flag = 1 if is_mock_mode() else 0
+    is_public = 1 if user is None else 0
+    conn = get_connection()
+    try:
+        site_id = get_or_create_site(conn, comp, brgy, st, parsed_lat, parsed_lng)
+        cur_b = conn.execute(
+            "INSERT INTO batches (status, created_by, guest_session_id, is_public) VALUES (?, ?, ?, ?)",
+            ("queued" if async_mode else "running", user.id if user else None, guest_session_id, is_public),
+        )
+        batch_id = cur_b.lastrowid
+        cur_a = conn.execute(
+            """INSERT INTO analyses
+               (filename, status, company, barangay, street, sector, notes, batch_id, created_by, site_id,
+                gps_lat, gps_lng, gps_source, width, height, is_mock, guest_session_id, is_public)
+               VALUES (?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                safe_name, comp, brgy, st, sector, notes, batch_id, user.id if user else None, site_id,
+                parsed_lat, parsed_lng, resolved_gps_source, width, height, is_mock_flag, guest_session_id, is_public,
+            ),
+        )
+        analysis_id = cur_a.lastrowid
+        conn.commit()
+
+        if not async_mode:
+            process_analysis(analysis_id, out_path, conn, main_state.get_model(), batch_id)
+            conn.execute("UPDATE batches SET status = 'done', finished_at = datetime('now') WHERE id = ?", (batch_id,))
+            conn.commit()
+            row_done = conn.execute("SELECT status, gps_lat, gps_lng FROM analyses WHERE id = ?", (analysis_id,)).fetchone()
+            final_status = row_done["status"] if row_done else "complete"
+            parsed_lat = row_done["gps_lat"] if row_done else parsed_lat
+            parsed_lng = row_done["gps_lng"] if row_done else parsed_lng
+        else:
+            final_status = "queued"
+    finally:
+        conn.close()
+
+    if async_mode:
+        enqueue_batch(batch_id)
+
+    if guest_token and guest_token != req.cookies.get("guest_session"):
+        response.set_cookie(
+            "guest_session",
+            guest_token,
+            httponly=True,
+            secure=cookie_secure(req),
+            samesite="lax",
+            max_age=86400,
+            path="/",
+        )
+
+    res_body: dict[str, Any] = {
+        "analysis_id": analysis_id,
+        "batch_id": batch_id,
+        "status": final_status,
+        "is_public": is_public,
+        "submission_type": "Public Submission" if is_public else "Verified Inspector",
+        "gps_lat": parsed_lat,
+        "gps_lng": parsed_lng,
+    }
+    if gps_warning:
+        res_body["warning"] = gps_warning
+    return res_body
+
+
+@app.get("/api/dashboard", response_class=JSONResponse, dependencies=[Depends(require_role(["admin", "lgu_engineer"]))])
+async def api_dashboard_alias(
+    include_mock: bool | None = Query(None, description="Include mock analyses"),
+    days: int = Query(30, ge=1, le=90),
+    limit: int = Query(48, ge=1, le=100),
+) -> dict[str, Any]:
+    from backend.routes.stats import get_dashboard_stats
+    eff_include_mock = is_mock_mode() if include_mock is None else include_mock
+    return await get_dashboard_stats(include_mock=eff_include_mock, days=days, limit=limit)
+
+
+@app.get("/api/history", response_class=JSONResponse)
+async def api_history_alias(
+    page: int = 1,
+    limit: int = 20,
+    status: str | None = None,
+    is_mock: int | None = None,
+    is_public: int | None = None,
+    company: str | None = None,
+    barangay: str | None = None,
+    street: str | None = None,
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
+    include_invalid: bool = Query(False),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    from backend.routes.analysis import get_analyses
+    return await get_analyses(
+        page=page,
+        limit=limit,
+        status=status,
+        is_mock=is_mock,
+        is_public=is_public,
+        company=company,
+        barangay=barangay,
+        street=street,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        include_invalid=include_invalid,
+        user=user,
+    )
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_root():

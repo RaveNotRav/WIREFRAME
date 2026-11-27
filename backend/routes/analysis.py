@@ -30,7 +30,7 @@ from backend.auth import (
     get_current_user,
     verify_csrf,
 )
-from backend.database import get_connection
+from backend.database import DEFAULT_PUBLIC_GPS_LAT, DEFAULT_PUBLIC_GPS_LNG, get_connection
 from backend.services.sites import get_or_create_site, validate_location, validate_gps_coordinates
 from backend.services.worker import enqueue_batch
 from backend.utils.uploads import extract_display_filename, generate_safe_filename, is_safe_contained_path
@@ -156,6 +156,9 @@ async def upload_image(
                 if exif_lat is not None and exif_lng is not None:
                     parsed_lat, parsed_lng, gps_warning = validate_gps_coordinates(exif_lat, exif_lng)
                     resolved_gps_source = 'exif'
+                elif user is None:
+                    parsed_lat = DEFAULT_PUBLIC_GPS_LAT
+                    parsed_lng = DEFAULT_PUBLIC_GPS_LNG
             elif parsed_lat is not None and parsed_lng is not None:
                 resolved_gps_source = requested_gps_source if requested_gps_source in ("device", "manual") else "manual"
             
@@ -319,7 +322,7 @@ async def get_analyses(
         results = []
         for item in items:
             d = dict(item)
-            # Add thumbnail URL logic if needed, or frontend constructs it
+            d["submission_type"] = "Public Submission" if d.get("is_public") else "Verified Inspector"
             results.append(d)
             
         return {

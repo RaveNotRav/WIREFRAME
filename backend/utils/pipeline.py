@@ -321,20 +321,32 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             raise InterruptedError("Cancelled before Analyzing")
             
         transition_state(conn, analysis_id, PipelineState.ANALYZING, "Computing VNI and extracting centerline geometry")
+        from backend.utils.cv.segment import _is_real_ultralytics_model
+        is_real_ultralytics = (not is_mock_mode()) and _is_real_ultralytics_model(model)
         vni_res = compute_vni(prep.gray)
+        # Gate 2D-FFT VNI against actual vegetation mask coverage in real mode so diagonal wires against
+        # clear sky do not trigger a false High VNI / vegetation risk alert.
+        if is_real_ultralytics:
+            img_area_px = max(1, prep.original_shape[0] * prep.original_shape[1])
+            veg_area_px = sum(int((vd["mask"] > 0).sum()) for vd in vegetation_detections if vd.get("mask") is not None)
+            veg_coverage = veg_area_px / float(img_area_px)
+            if len(vegetation_detections) == 0 or veg_coverage < 0.01:
+                vni_res.vni = round(min(float(vni_res.vni), 0.12), 4)
+                vni_res.band = "Low"
         
         bridge_poles_enabled = (
             _os.getenv("WIREFRAME_BRIDGE_POLES", "0").strip().lower() in ("1", "true", "yes")
             or bool(get_setting("bridge_across_poles", False))
         )
         analyzed_wires = []
+        from backend.utils.cv.span_fit import fit_span
         for w in wires:
             w_mask = w["mask"]
             if bridge_poles_enabled and pole_masks and w_mask is not None:
                 w_mask = bridge_across_poles(w_mask, pole_masks)
             cline = extract_centerline(w_mask, w["bbox"])
             if cline.is_valid:
-                cat = calculate_sag_metrics(cline.polyline)
+                cat = fit_span(cline.polyline) if is_real_ultralytics else calculate_sag_metrics(cline.polyline)
                 w["catenary"] = cat
                 w["centerline_flags"] = list(cline.flags)
                 w["lowest_y"] = get_lowest_y(cline.polyline)
@@ -413,24 +425,37 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         max_crs = 0.0
         max_crs_10 = 0.0
         final_wires = []
+        img_long_side = float(max(prep.original_shape[:2]))
         for idx_w, w in enumerate(analyzed_wires):
             cat = w["catenary"]
-            crs_raw = compute_catenary_risk(cat.sag_to_span, cat.residual)
+            # Use perpendicular chord sag ratio in real mode and apply precision dampening on short pole-attachment
+            # fragments (< 25% of frame width) so 1-2px skeleton jitter at a pole clamp never spikes CRS to 10/10.
+            eff_sag_ratio = cat.perp_sag_ratio if is_real_ultralytics else cat.sag_to_span
+            if is_real_ultralytics and cat.span_px > 0 and cat.span_px < 0.28 * img_long_side:
+                eff_sag_ratio *= (cat.span_px / (0.28 * img_long_side)) ** 1.25
+
+            crs_raw = compute_catenary_risk(eff_sag_ratio, 0.0 if is_real_ultralytics else cat.residual)
             cls_key = normalize_wire_class(w["class_name"])
             cls_weight = weights.get(cls_key, weights.get(normalize_class_name(w["class_name"]), 1.0))
-            crs_weighted = max(0.0, min(100.0, crs_raw * cls_weight))
-            max_crs = max(max_crs, crs_weighted)
 
             span_m_est = (cat.span_px * eff_meters_per_px) if (eff_meters_per_px and cat.span_px) else None
             delta_lim, sag_flags = compute_allowable_sag(cls_key, span_m=span_m_est)
             crs_10, paper_risk_level = compute_paper_crs(
-                cat.sag_to_span,
+                eff_sag_ratio,
                 delta_lim=delta_lim,
                 class_weight=cls_weight,
                 fit_failed=cat.fit_failed,
             )
             if crs_10 is not None:
                 max_crs_10 = max(max_crs_10, float(crs_10))
+
+            # Keep 0-100 Wire CRS consistent with Paper CRS & Clearance when ground/prior calibration is present
+            if is_real_ultralytics and crs_10 is not None and eff_meters_per_px is not None:
+                crs_weighted = round(max(crs_raw * cls_weight, float(crs_10) * 6.5), 2)
+            else:
+                crs_weighted = max(0.0, min(100.0, crs_raw * cls_weight))
+            crs_weighted = max(0.0, min(100.0, crs_weighted))
+            max_crs = max(max_crs, crs_weighted)
 
             v_info = veg_dists[idx_w] if idx_w < len(veg_dists) else {}
             t_info = per_wire_topo[idx_w] if idx_w < len(per_wire_topo) else {}
@@ -552,6 +577,7 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
             max_wire_crs=max_crs,
             max_crs_10=max_crs_10,
             vni=vni_res.vni,
+            vegetation_count=len(vegetation_detections),
             min_veg_dist_m=min(valid_veg_m) if valid_veg_m else None,
             min_veg_dist_px=min(valid_veg_px) if valid_veg_px else None,
             dead_wire_count=dead_wires,
@@ -567,11 +593,14 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
         else:
             assumed_pole_height_m = None
 
+        from backend.database import DEFAULT_PUBLIC_GPS_LAT, DEFAULT_PUBLIC_GPS_LNG
         conn.execute(
             """UPDATE analyses 
                SET status = 'complete', vni = ?, max_crs = ?, barangay_risk = ?, risk_score = ?, dead_wire_count = ?, spectrum_path = ?, annotated_path = ?,
                    clearance_ok = ?, clearance_available = ?, pec_min_clearance_m = ?, sag_meters = ?, assumed_pole_height_m = ?,
-                   width = ?, height = ?, pole_bbox_json = ?, margin_error_m = ?, is_mock = ?
+                   width = ?, height = ?, pole_bbox_json = ?, margin_error_m = ?, is_mock = ?,
+                   gps_lat = COALESCE(gps_lat, CASE WHEN is_public = 1 THEN ? ELSE NULL END),
+                   gps_lng = COALESCE(gps_lng, CASE WHEN is_public = 1 THEN ? ELSE NULL END)
                WHERE id = ?""",
             (
                 vni_res.vni, max_crs, barangay_risk, final_score, dead_wires, spectrum_path, annotated_path,
@@ -579,6 +608,7 @@ def execute_pipeline(analysis_id: int, image_path: str, conn: sqlite3.Connection
                 clearance_rollup["sag_meters"], assumed_pole_height_m,
                 prep.original_shape[1], prep.original_shape[0], json.dumps(pole_bbox) if pole_bbox else None, clearance_rollup["margin_error_m"],
                 1 if is_mock_mode() else 0,
+                DEFAULT_PUBLIC_GPS_LAT, DEFAULT_PUBLIC_GPS_LNG,
                 analysis_id
             )
         )

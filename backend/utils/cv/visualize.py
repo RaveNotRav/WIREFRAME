@@ -50,6 +50,12 @@ CLASS_SHORT_LABELS: dict[str, str] = {
 }
 
 
+def _boxes_overlap(a: tuple[int, int, int, int], b: tuple[int, int, int, int], pad: int = 3) -> bool:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    return not (ax2 + pad <= bx1 or bx2 + pad <= ax1 or ay2 + pad <= by1 or by2 + pad <= ay1)
+
+
 def _draw_badge(
     img: np.ndarray,
     text: str,
@@ -57,18 +63,59 @@ def _draw_badge(
     y: int,
     bg_rgb: tuple[int, int, int],
     text_rgb: tuple[int, int, int] = (255, 255, 255),
-    font_scale: float = 0.52,
+    font_scale: float = 0.50,
     thickness: int = 1,
-) -> None:
-    """Draw a high-contrast pill/rectangle badge with text at (x, y)."""
+    placed_boxes: list[tuple[int, int, int, int]] | None = None,
+    anchor_pt: tuple[int, int] | None = None,
+) -> tuple[int, int, int, int]:
+    """Draw a high-contrast pill/rectangle badge with collision avoidance and optional leader line."""
     h, w = img.shape[:2]
     font = cv2.FONT_HERSHEY_SIMPLEX
     (tw, th), baseline = cv2.getTextSize(text, font, font_scale, thickness)
     pad_x, pad_y = 6, 4
-    bx1 = max(2, min(w - tw - 2 * pad_x - 2, x))
-    by1 = max(2, min(h - th - 2 * pad_y - 2, y - th - 2 * pad_y))
-    bx2 = min(w - 2, bx1 + tw + 2 * pad_x)
-    by2 = min(h - 2, by1 + th + 2 * pad_y + baseline // 2)
+    bw = tw + 2 * pad_x
+    bh = th + 2 * pad_y + baseline // 2
+
+    def _clamp_box(cx: int, cy: int) -> tuple[int, int, int, int]:
+        bx1 = max(2, min(max(2, w - bw - 2), cx))
+        by1 = max(2, min(max(2, h - bh - 2), cy - bh))
+        return bx1, by1, min(w - 2, bx1 + bw), min(h - 2, by1 + bh)
+
+    cand = _clamp_box(x, y)
+    if placed_boxes is not None and any(_boxes_overlap(cand, prev) for prev in placed_boxes):
+        step_y = bh + 5
+        step_x = max(28, bw // 3)
+        offsets = [
+            (0, -step_y),
+            (0, step_y),
+            (0, -2 * step_y),
+            (0, 2 * step_y),
+            (step_x, -step_y),
+            (-step_x, -step_y),
+            (step_x, step_y),
+            (-step_x, step_y),
+            (0, -3 * step_y),
+            (0, 3 * step_y),
+            (2 * step_x, 0),
+            (-2 * step_x, 0),
+        ]
+        for dx, dy in offsets:
+            trial = _clamp_box(x + dx, y + dy)
+            if not any(_boxes_overlap(trial, prev) for prev in placed_boxes):
+                cand = trial
+                break
+
+    bx1, by1, bx2, by2 = cand
+    if placed_boxes is not None:
+        placed_boxes.append(cand)
+
+    # Draw subtle leader line if badge moved away from anchor point
+    if anchor_pt is not None:
+        ax, ay = int(anchor_pt[0]), int(anchor_pt[1])
+        near_x = max(bx1, min(bx2, ax))
+        near_y = max(by1, min(by2, ay))
+        if np.hypot(near_x - ax, near_y - ay) > 8.0:
+            cv2.line(img, (ax, ay), (near_x, near_y), bg_rgb, 1, cv2.LINE_AA)
 
     # Dark backing with colored border for readability on both bright sky and dark foliage
     cv2.rectangle(img, (bx1, by1), (bx2, by2), (15, 23, 42), -1)
@@ -83,6 +130,7 @@ def _draw_badge(
         thickness,
         cv2.LINE_AA,
     )
+    return cand
 
 
 def _draw_dashed_line(
@@ -183,6 +231,7 @@ def render_unified_overlay(
         canvas = cv2.addWeighted(overlay, 0.32, canvas, 0.68, 0)
 
     # 2. Crisp mask contours & bounding boxes for Vegetation
+    placed_badges: list[tuple[int, int, int, int]] = []
     for idx, veg in enumerate(veg_list, start=1):
         v_color = CLASS_COLORS_RGB["vegetation"]
         vm = veg.get("mask")
@@ -196,7 +245,7 @@ def render_unified_overlay(
             cv2.rectangle(canvas, (vx1, vy1), (vx2, vy2), v_color, 2)
             v_conf = float(veg.get("confidence") or 0.0)
             v_label = f"Vegetation {int(round(v_conf * 100))}%" if v_conf > 0 else "Vegetation"
-            _draw_badge(canvas, v_label, vx1, max(24, vy1), v_color)
+            _draw_badge(canvas, v_label, vx1, max(24, vy1), v_color, placed_boxes=placed_badges, anchor_pt=(vx1, vy1))
 
     # 3. Utility Pole bounding box & ground reference line
     ground_y: int | None = None
@@ -211,7 +260,17 @@ def render_unified_overlay(
             p_badge = "Pole (Detected)"
         else:
             p_badge = "Pole"
-        _draw_badge(canvas, p_badge, px1, max(24, py1), p_color)
+        # Place pole badge near the lower-middle shaft so it stays clear of upper crossarm/wire junction
+        pole_badge_y = min(h - 32, max(28, py1 + int(0.62 * (py2 - py1))))
+        _draw_badge(
+            canvas,
+            p_badge,
+            max(4, px1 - 10),
+            pole_badge_y,
+            p_color,
+            placed_boxes=placed_badges,
+            anchor_pt=(px1, pole_badge_y),
+        )
         if py2 < h - 5:
             ground_y = py2
             pole_center_x = (px1 + px2) // 2
@@ -227,7 +286,16 @@ def render_unified_overlay(
         if len(cb) >= 4:
             cx1, cy1, cx2, cy2 = [int(round(v)) for v in cb[:4]]
             cv2.rectangle(canvas, (cx1, cy1), (cx2, cy2), CLASS_COLORS_RGB["crossarm"], 2)
-            _draw_badge(canvas, "Crossarm", cx1, max(24, cy1), CLASS_COLORS_RGB["crossarm"], font_scale=0.44)
+            _draw_badge(
+                canvas,
+                "Crossarm",
+                max(4, cx1 - 12),
+                max(24, cy1 - 4),
+                CLASS_COLORS_RGB["crossarm"],
+                font_scale=0.44,
+                placed_boxes=placed_badges,
+                anchor_pt=(cx1, cy1),
+            )
 
     for ib in insulator_boxes or []:
         if len(ib) >= 4:
@@ -297,7 +365,8 @@ def render_unified_overlay(
                         cv2.line(canvas, (sag_pt[0], chord_y_at_sag), sag_pt, (250, 204, 21), 2, cv2.LINE_AA)
                         cv2.circle(canvas, sag_pt, 4, (250, 204, 21), -1, cv2.LINE_AA)
 
-            label_x, label_y = int(pts_arr[0][0]), int(pts_arr[0][1])
+            mid_idx = len(pts_arr) // 2
+            label_x, label_y = int(pts_arr[mid_idx][0]), int(pts_arr[mid_idx][1])
         else:
             label_x, label_y = bx1, max(24, by1)
 
@@ -311,7 +380,15 @@ def render_unified_overlay(
                 sag_suffix = f" | Sag {float(sag_px_val):.0f}px"
 
         badge_text = f"#{idx} {short_lbl} {int(round(w_conf * 100))}%{sag_suffix}"
-        _draw_badge(canvas, badge_text, label_x, max(24, label_y - 4), w_color)
+        _draw_badge(
+            canvas,
+            badge_text,
+            label_x,
+            max(24, label_y - 6),
+            w_color,
+            placed_boxes=placed_badges,
+            anchor_pt=(label_x, label_y),
+        )
 
         # Vegetation encroachment indicator line when vegetation is within 80 px of this wire
         veg_dist_px = wire.get("vegetation_distance_px")
@@ -336,7 +413,7 @@ def render_unified_overlay(
         else:
             clr_text = f"Clearance {clr_px}px"
         mid_y = (lowest_wire_pt[1] + ground_y) // 2
-        _draw_badge(canvas, clr_text, min(w - 160, cx + 8), mid_y, (56, 189, 248))
+        _draw_badge(canvas, clr_text, min(w - 160, cx + 8), mid_y, (56, 189, 248), placed_boxes=placed_badges)
     elif virtual_ground_y is not None and lowest_wire_pt is not None and virtual_ground_y > lowest_wire_pt[1] and meters_per_px:
         cx = lowest_wire_pt[0]
         bottom_y = h - 4
@@ -344,6 +421,6 @@ def render_unified_overlay(
         est_clr_m = (float(virtual_ground_y) - lowest_wire_pt[1]) * float(meters_per_px)
         clr_text = f"Est. Clearance ~{est_clr_m:.2f}m (Prior)"
         mid_y = (lowest_wire_pt[1] + bottom_y) // 2
-        _draw_badge(canvas, clr_text, max(6, min(w - 220, cx - 60)), mid_y, (56, 189, 248))
+        _draw_badge(canvas, clr_text, max(6, min(w - 220, cx - 60)), mid_y, (56, 189, 248), placed_boxes=placed_badges)
 
     return canvas

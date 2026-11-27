@@ -6,6 +6,9 @@ import sqlite3
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PUBLIC_GPS_LAT = 14.5995
+DEFAULT_PUBLIC_GPS_LNG = 120.9842
+
 
 def get_connection(db_path: str | None = None) -> sqlite3.Connection:
     """Create a SQLite connection with WAL mode and busy timeout."""
@@ -253,6 +256,15 @@ def _migrate_011_ground_reference_and_margin(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE analyses ADD COLUMN pole_bbox_json TEXT")
     conn.execute("ALTER TABLE analyses ADD COLUMN margin_error_m REAL")
 
+
+def _migrate_012_public_fallback_coords(conn: sqlite3.Connection) -> None:
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_analyses_is_public ON analyses(is_public)")
+    conn.execute(
+        "UPDATE analyses SET gps_lat = ?, gps_lng = ? WHERE is_public = 1 AND (gps_lat IS NULL OR gps_lng IS NULL)",
+        (DEFAULT_PUBLIC_GPS_LAT, DEFAULT_PUBLIC_GPS_LNG),
+    )
+
+
 MIGRATIONS: list[tuple[int, str, callable]] = [
 
     (1, "create_base_tables", _migrate_001_base_tables),
@@ -266,6 +278,7 @@ MIGRATIONS: list[tuple[int, str, callable]] = [
     (9, "analysis_notes", _migrate_009_analysis_notes),
     (10, "public_submissions", _migrate_010_public_submissions),
     (11, "ground_reference_and_margin", _migrate_011_ground_reference_and_margin),
+    (12, "public_fallback_coords", _migrate_012_public_fallback_coords),
 ]
 
 

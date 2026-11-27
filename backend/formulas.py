@@ -537,6 +537,7 @@ def compute_unified_hazard_breakdown(
     max_wire_crs: float = 0.0,
     max_crs_10: float = 0.0,
     vni: float = 0.0,
+    vegetation_count: int | None = None,
     min_veg_dist_m: float | None = None,
     min_veg_dist_px: float | None = None,
     dead_wire_count: int = 0,
@@ -575,17 +576,20 @@ def compute_unified_hazard_breakdown(
     # 2. Catenary Sag Risk
     sag_risk = float(max(0.0, min(100.0, max(float(max_wire_crs or 0.0), float(max_crs_10 or 0.0) * 8.5))))
 
-    # 3. Vegetation Proximity Risk
-    veg_risk = float(max(0.0, min(100.0, float(vni or 0.0) * 60.0)))
-    if min_veg_dist_px is not None:
-        if min_veg_dist_px <= 1.0:
-            veg_risk = max(veg_risk, 90.0)
-        elif min_veg_dist_m is not None and min_veg_dist_m <= 0.6:
-            veg_risk = max(veg_risk, 75.0)
-        elif min_veg_dist_m is not None and min_veg_dist_m <= 1.5:
-            veg_risk = max(veg_risk, 50.0)
-        elif min_veg_dist_px <= 20.0:
-            veg_risk = max(veg_risk, 55.0)
+    # 3. Vegetation Proximity Risk (gated when vegetation_count == 0 and min_veg_dist_px is None)
+    if vegetation_count == 0 and min_veg_dist_px is None:
+        veg_risk = round(min(10.0, float(vni or 0.0) * 25.0), 1)
+    else:
+        veg_risk = float(max(0.0, min(100.0, float(vni or 0.0) * 60.0)))
+        if min_veg_dist_px is not None:
+            if min_veg_dist_px <= 1.0:
+                veg_risk = max(veg_risk, 90.0)
+            elif min_veg_dist_m is not None and min_veg_dist_m <= 0.6:
+                veg_risk = max(veg_risk, 75.0)
+            elif min_veg_dist_m is not None and min_veg_dist_m <= 1.5:
+                veg_risk = max(veg_risk, 50.0)
+            elif min_veg_dist_px <= 20.0:
+                veg_risk = max(veg_risk, 55.0)
 
     # 4. Dangling / Dead Wire Risk
     eff_dead = max(int(dead_wire_count or 0), int(free_hanging_count or 0))

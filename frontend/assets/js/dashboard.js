@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (mockToggleContainer) mockToggleContainer.style.display = 'block';
 
                 // Check if any verified non-mock complete analyses exist
-                const realCheckRes = await fetch(`/api/analysis?is_mock=0&is_public=0&status=complete&limit=1${cacheBuster}`);
+                const realCheckRes = await fetch(`/api/analysis?is_mock=0&status=complete&limit=1${cacheBuster}`);
                 if (realCheckRes.ok) {
                     const realData = await realCheckRes.json();
                     const hasReal = (realData.total || 0) > 0;
@@ -387,7 +387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const timeAgo = formatRelativeTime(item.created_at);
             const pillHtml = getRiskScorePill(item.risk_score);
             const publicBadgeHtml = Number(item.is_public) === 1
-                ? ` <span class="recent-public-badge">${escapeHtml('Public tip')}</span>`
+                ? ` <span class="recent-public-badge">${escapeHtml('Public Submission')}</span>`
                 : '';
             const vniBadgeHtml = typeof item.vni === 'number'
                 ? ` <span style="opacity:0.8;">• VNI ${item.vni.toFixed(2)}</span>`
@@ -559,7 +559,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Note: In a real app we'd handle pagination, 
             // but for dashboard view we'll load the first 100 
             // or rely on server-side sort if supported.
-            const mockQuery = state.includeMock ? '' : '&is_public=0&is_mock=0';
+            const mockQuery = state.includeMock ? '' : '&is_mock=0';
             const cacheBuster = `&_t=${Date.now()}`;
             const res = await fetch(`/api/analysis?limit=100&status=complete${mockQuery}${cacheBuster}`);
             if (!res.ok) throw new Error('Failed to fetch analyses');
@@ -574,7 +574,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 tr.innerHTML = `
                     <td>${escapeHtml(item.id)}</td>
                     <td>${formatDbTimestamp(item.created_at, { includeTime: false })}</td>
-                    <td>${escapeHtml(item.company || '-')}</td>
+                    <td>${escapeHtml(item.company || '-')}${Number(item.is_public) === 1 ? ` <span class="recent-public-badge">${escapeHtml('Public Submission')}</span>` : ''}</td>
                     <td>${escapeHtml(item.site_name || item.street || '-')}</td>
                     <td>${escapeHtml(item.barangay || '-')}</td>
                     <td>${escapeHtml(item.status)}</td>

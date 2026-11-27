@@ -1303,6 +1303,8 @@ export function updateTilesFromJson(analysis) {
         const wireFragment = document.createDocumentFragment();
         analysis.wires.forEach((w, i) => {
             const div = document.createElement('div');
+            div.className = 'wire-card-item';
+            div.style.flexShrink = '0';
             div.style.padding = '10px';
             div.style.border = 'var(--border-subtle)';
             div.style.borderRadius = '8px';
@@ -1313,11 +1315,12 @@ export function updateTilesFromJson(analysis) {
             const color = getWireClassColor(wireClassName);
             const crsLabel = typeof w.crs === 'number' ? w.crs.toFixed(2) : '--';
             const sagLabel = typeof w.sag_m === 'number' ? `${w.sag_m.toFixed(2)}m` : '--';
+            const clrWireStr = typeof w.clearance_m === 'number' ? ` | Clearance: ${w.clearance_m.toFixed(2)}m` : '';
             const hasGroundRef = (typeof w.clearance_m === 'number') || (typeof analysis.ground_clearance_m === 'number') || (typeof w.sag_m === 'number');
-            const isZeroWithoutGroundRef = (typeof w.crs === 'number' && w.crs === 0) || !hasGroundRef && crsLabel === '0.00';
+            const isZeroWithoutGroundRef = !hasGroundRef && (typeof w.crs !== 'number' || w.crs === 0);
             const clearanceCrsDisplay = isZeroWithoutGroundRef
                 ? 'Clearance CRS: N/A (No Ground Ref)'
-                : `Wire CRS: ${crsLabel}`;
+                : `Clearance CRS: ${crsLabel}`;
             const paperCrsText = typeof w.crs_10 === 'number'
                 ? ` | Structural/Paper CRS: ${w.crs_10.toFixed(2)}/10${w.paper_risk_level ? ` (${escapeHtml(w.paper_risk_level)})` : ''}`
                 : '';
@@ -1348,7 +1351,7 @@ export function updateTilesFromJson(analysis) {
                 </div>
                 <div style="text-align:right;">
                     <div>${clearanceCrsDisplay}${paperCrsText}</div>
-                    <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${sagLabel}${vegDistStr}</div>
+                    <div style="font-size:0.85rem;color:var(--text-muted);">Sag: ${sagLabel}${clrWireStr}${vegDistStr}</div>
                 </div>
             `;
             wireFragment.appendChild(div);

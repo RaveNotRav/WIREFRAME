@@ -467,12 +467,15 @@ def test_gps_upload_single_and_batch_storage_and_validation(client_unauth, monke
     assert res_empty_batch.status_code == 200, res_empty_batch.text
     empty_batch_id = res_empty_batch.json()["batch_id"]
 
+    from backend.database import DEFAULT_PUBLIC_GPS_LAT, DEFAULT_PUBLIC_GPS_LNG
     conn = get_connection()
-    row_empty_s = conn.execute("SELECT gps_lat, gps_lng FROM analyses WHERE id = ?", (empty_single_id,)).fetchone()
-    row_empty_b = conn.execute("SELECT gps_lat, gps_lng FROM analyses WHERE batch_id = ?", (empty_batch_id,)).fetchone()
+    row_empty_s = conn.execute("SELECT gps_lat, gps_lng, gps_source FROM analyses WHERE id = ?", (empty_single_id,)).fetchone()
+    row_empty_b = conn.execute("SELECT gps_lat, gps_lng, gps_source FROM analyses WHERE batch_id = ?", (empty_batch_id,)).fetchone()
     conn.close()
-    assert row_empty_s["gps_lat"] is None and row_empty_s["gps_lng"] is None
-    assert row_empty_b["gps_lat"] is None and row_empty_b["gps_lng"] is None
+    assert row_empty_s["gps_lat"] == pytest.approx(DEFAULT_PUBLIC_GPS_LAT) and row_empty_s["gps_lng"] == pytest.approx(DEFAULT_PUBLIC_GPS_LNG)
+    assert row_empty_s["gps_source"] is None
+    assert row_empty_b["gps_lat"] == pytest.approx(DEFAULT_PUBLIC_GPS_LAT) and row_empty_b["gps_lng"] == pytest.approx(DEFAULT_PUBLIC_GPS_LNG)
+    assert row_empty_b["gps_source"] is None
 
     # 4. Out-of-range lat=999 -> 422 (single + batch)
     res_bad_single = client_unauth.post(

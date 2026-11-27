@@ -18,7 +18,7 @@ from PIL.Image import DecompressionBombError
 
 from backend import main_state
 from backend.auth import User, check_rate_limit, get_current_user, verify_csrf, get_optional_user, check_anon_rate_limit, _hash_token, verify_analysis_access, cookie_secure
-from backend.database import get_connection
+from backend.database import DEFAULT_PUBLIC_GPS_LAT, DEFAULT_PUBLIC_GPS_LNG, get_connection
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
 
@@ -146,6 +146,10 @@ async def create_batch(
                 
             saved_files.append(safe_name)
             
+        has_explicit_gps = lat_val is not None and lng_val is not None
+        if user is None and not has_explicit_gps:
+            lat_val = DEFAULT_PUBLIC_GPS_LAT
+            lng_val = DEFAULT_PUBLIC_GPS_LNG
         site_id = get_or_create_site(conn, comp, brgy, st, lat_val, lng_val)
             
         is_mock_flag = 1 if os.getenv("WIREFRAME_MOCK") == "1" else 0
@@ -153,7 +157,7 @@ async def create_batch(
         req_gps_src = gps_source.strip().lower() if isinstance(gps_source, str) else ""
         resolved_gps_source = (
             (req_gps_src if req_gps_src in ("device", "manual") else "manual")
-            if (lat_val is not None and lng_val is not None)
+            if has_explicit_gps
             else None
         )
         for safe_name in saved_files:

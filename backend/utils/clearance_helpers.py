@@ -105,7 +105,22 @@ def evaluate_wire(
     canon_key = normalize_wire_class(cls_key)
     pec_min = pec_min_map.get(cls_key, pec_min_map.get(canon_key, pec_min_map.get("default", 5.5)))
 
-    if clear_est["status"] != "unavailable":
+    if clear_est["status"] == "estimated_prior":
+        # For structural-prior estimated clearance, emit "marginal" ("near PEC minimum") ONLY when
+        # estimated clearance is within 0.4m above pec_min (<= pec_min + 0.4, e.g. <= 5.9m for 5.5m PEC),
+        # so 6.44m clear spans report "ok" instead of a false near-limit warning.
+        cm = float(clear_est["clearance_m"])
+        if cm < pec_min:
+            clearance_status = "below"
+        elif cm <= pec_min + 0.4:
+            clearance_status = "marginal"
+        else:
+            clearance_status = "ok"
+        est_str = (
+            f"Estimated clearance {clear_est['clearance_m']:.2f} m "
+            f"(prior range {clear_est['clearance_low_m']:.2f}-{clear_est['clearance_high_m']:.2f} m)"
+        )
+    elif clear_est["status"] != "unavailable":
         clearance_status = compute_clearance_status(
             clear_est["clearance_m"],
             clear_est["clearance_low_m"],

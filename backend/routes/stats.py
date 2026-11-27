@@ -16,11 +16,11 @@ async def get_dashboard_stats(
     try:
         # Check if we need to filter by mock
         # Stats never count rejected or no_wires; all queries filter strictly on status = 'complete'.
-        # By default (include_mock=False), stats are verified inspector records only (is_mock = 0 and is_public = 0).
-        # When include_mock=True, mock/public test records are included as well.
+        # By default (include_mock=False), all real analyses (both verified inspector and public submissions, is_mock = 0) are included.
+        # When include_mock=True, mock test records are included as well.
         mock_clause = ""
         if not include_mock:
-            mock_clause = "AND is_mock = 0 AND is_public = 0"
+            mock_clause = "AND is_mock = 0"
         
         # 1. KPIs
         kpi_query = f"""
@@ -75,12 +75,13 @@ async def get_dashboard_stats(
                 a.id as analysis_id,
                 a.site_id,
                 a.risk_score,
+                a.is_public,
                 s.name as site_name,
                 a.created_at
             FROM analyses a
             LEFT JOIN sites s ON a.site_id = s.id
             WHERE a.status = 'complete' {mock_clause}
-            ORDER BY a.created_at DESC
+            ORDER BY a.created_at DESC, a.id DESC
             LIMIT ?
         """
         heatmap_rows = conn.execute(heatmap_query, (limit,)).fetchall()
@@ -107,6 +108,8 @@ async def get_dashboard_stats(
                 "site_name": r["site_name"] or f"Analysis #{r['analysis_id']}",
                 "risk_score": score,
                 "risk_band": band,
+                "is_public": int(r["is_public"] or 0),
+                "submission_type": "Public Submission" if r["is_public"] else "Verified Inspector",
                 "created_at": r["created_at"]
             })
             
@@ -131,11 +134,29 @@ async def get_dashboard_stats(
             for r in trend_rows
         ]
         
+        # 5. Recent Analyses (includes both verified inspector & Public Submissions by default)
+        recent_rows = conn.execute(
+            f"""
+            SELECT a.*, s.name as site_name
+            FROM analyses a
+            LEFT JOIN sites s ON a.site_id = s.id
+            WHERE a.status = 'complete' {mock_clause.replace('is_mock', 'a.is_mock')}
+            ORDER BY a.created_at DESC, a.id DESC
+            LIMIT 5
+            """
+        ).fetchall()
+        recent_analyses = []
+        for rr in recent_rows:
+            rd = dict(rr)
+            rd["submission_type"] = "Public Submission" if rd.get("is_public") else "Verified Inspector"
+            recent_analyses.append(rd)
+
         return {
             "kpis": kpis,
             "distribution": distribution,
             "heatmap": heatmap,
-            "trend": trend
+            "trend": trend,
+            "recent_analyses": recent_analyses,
         }
     finally:
         conn.close()
